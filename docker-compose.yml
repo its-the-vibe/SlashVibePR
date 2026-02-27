@@ -6,17 +6,12 @@ services:
     image: slashvibeprs:latest
     container_name: slashvibeprs
     read_only: true
+    env_file:
+      - .env
     environment:
-      - REDIS_ADDR=${REDIS_ADDR:-host.docker.internal:6379}
-      - REDIS_PASSWORD=${REDIS_PASSWORD}
-      - REDIS_CHANNEL=${REDIS_CHANNEL:-slack-commands}
-      - REDIS_VIEW_SUBMISSION_CHANNEL=${REDIS_VIEW_SUBMISSION_CHANNEL:-slack-relay-view-submission}
-      - REDIS_POPPIT_LIST=${REDIS_POPPIT_LIST:-poppit:commands}
-      - REDIS_POPPIT_OUTPUT_CHANNEL=${REDIS_POPPIT_OUTPUT_CHANNEL:-poppit:command-output}
-      - REDIS_SLACKLINER_LIST=${REDIS_SLACKLINER_LIST:-slack_messages}
-      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
-      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CONFIG_FILE=/etc/slashvibeprs/config.yaml
+    volumes:
+      - ./config.yaml:/etc/slashvibeprs/config.yaml:ro
     restart: on-failure:10
     extra_hosts:
       - "host.docker.internal:host-gateway"

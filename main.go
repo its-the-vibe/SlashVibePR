@@ -18,10 +18,10 @@ func main() {
 	SetLogLevel(config.LogLevel)
 
 	if config.SlackBotToken == "" {
-		Fatal("SLACK_BOT_TOKEN is required")
+		Fatal("SLACK_BOT_TOKEN environment variable is required")
 	}
 	if config.SlackChannelID == "" {
-		Fatal("SLACK_CHANNEL_ID is required")
+		Fatal("slack.channel_id must be set in config.yaml")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

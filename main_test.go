@@ -301,17 +301,97 @@ func TestGetEnvDefault(t *testing.T) {
 	}
 }
 
-func TestLoadConfigDefaults(t *testing.T) {
-	config := loadConfig()
+func TestLoadConfigFromBytesDefaults(t *testing.T) {
+	// Empty YAML — should fall back to built-in defaults.
+	config, err := loadConfigFromBytes([]byte(""), "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
-	if config.RedisChannel == "" {
-		t.Error("RedisChannel should have a default value")
+	if config.RedisChannel != "slack-commands" {
+		t.Errorf("unexpected RedisChannel: %q", config.RedisChannel)
 	}
-	if config.RedisPoppitList == "" {
-		t.Error("RedisPoppitList should have a default value")
+	if config.RedisPoppitList != "poppit:commands" {
+		t.Errorf("unexpected RedisPoppitList: %q", config.RedisPoppitList)
 	}
-	if config.RedisPoppitOutputChannel == "" {
-		t.Error("RedisPoppitOutputChannel should have a default value")
+	if config.RedisPoppitOutputChannel != "poppit:command-output" {
+		t.Errorf("unexpected RedisPoppitOutputChannel: %q", config.RedisPoppitOutputChannel)
+	}
+	if config.LogLevel != "INFO" {
+		t.Errorf("unexpected LogLevel: %q", config.LogLevel)
+	}
+}
+
+func TestLoadConfigFromBytesFullYAML(t *testing.T) {
+	yamlData := []byte(`
+redis:
+  addr: myredis:6380
+channels:
+  slash_commands: my-commands
+  view_submissions: my-view-submissions
+  poppit_output: my-poppit-output
+lists:
+  poppit_commands: my-poppit-commands
+  slackliner_messages: my-slack-messages
+slack:
+  channel_id: CMYCHANNEL
+logging:
+  level: DEBUG
+`)
+
+	config, err := loadConfigFromBytes(yamlData, "secret-pw", "xoxb-token")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if config.RedisAddr != "myredis:6380" {
+		t.Errorf("unexpected RedisAddr: %q", config.RedisAddr)
+	}
+	if config.RedisPassword != "secret-pw" {
+		t.Errorf("unexpected RedisPassword: %q", config.RedisPassword)
+	}
+	if config.SlackBotToken != "xoxb-token" {
+		t.Errorf("unexpected SlackBotToken: %q", config.SlackBotToken)
+	}
+	if config.RedisChannel != "my-commands" {
+		t.Errorf("unexpected RedisChannel: %q", config.RedisChannel)
+	}
+	if config.SlackChannelID != "CMYCHANNEL" {
+		t.Errorf("unexpected SlackChannelID: %q", config.SlackChannelID)
+	}
+	if config.LogLevel != "DEBUG" {
+		t.Errorf("unexpected LogLevel: %q", config.LogLevel)
+	}
+}
+
+func TestLoadConfigFromBytesPartialYAML(t *testing.T) {
+	// Only override a subset — other values should keep built-in defaults.
+	yamlData := []byte(`
+slack:
+  channel_id: CPARTIAL
+`)
+
+	config, err := loadConfigFromBytes(yamlData, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if config.SlackChannelID != "CPARTIAL" {
+		t.Errorf("unexpected SlackChannelID: %q", config.SlackChannelID)
+	}
+	// Unset values keep defaults.
+	if config.RedisAddr != "host.docker.internal:6379" {
+		t.Errorf("unexpected RedisAddr: %q", config.RedisAddr)
+	}
+	if config.RedisChannel != "slack-commands" {
+		t.Errorf("unexpected RedisChannel: %q", config.RedisChannel)
+	}
+}
+
+func TestLoadConfigFromBytesInvalidYAML(t *testing.T) {
+	_, err := loadConfigFromBytes([]byte("not: valid: yaml: ["), "", "")
+	if err == nil {
+		t.Error("expected error for invalid YAML, got nil")
 	}
 }
 

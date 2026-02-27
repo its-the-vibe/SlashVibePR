@@ -5,6 +5,7 @@ go 1.25
 require (
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/slack-go/slack v0.18.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
