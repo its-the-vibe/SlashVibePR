@@ -55,8 +55,7 @@ func handleSlashCommand(ctx context.Context, slackClient *slack.Client, payload 
 
 	Info("Received /pr command from user %s", cmd.UserName)
 
-	repo := strings.TrimSpace(cmd.Text)
-	modal := createRepoChooserModal(repo)
+	modal := createRepoChooserModal()
 	if _, err := slackClient.OpenView(cmd.TriggerID, modal); err != nil {
 		Error("Error opening repo chooser modal: %v", err)
 		return
@@ -107,11 +106,13 @@ func handleViewSubmission(ctx context.Context, rdb *redis.Client, slackClient *s
 //  1. Opens a loading modal (using the submission's trigger_id).
 //  2. Sends a Poppit command to run `gh pr list`.
 func handleRepoSelection(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, submission ViewSubmission, config Config) {
-	repo := extractTextValue(submission.View.State.Values, "repo_block", "repo_input")
-	if repo == "" {
+	repoName := extractTextValue(submission.View.State.Values, "repo_block", "repo_input")
+	if repoName == "" {
 		Warn("Repo selection submission has empty repo")
 		return
 	}
+
+	repo := config.GitHubOrg + "/" + repoName
 
 	Info("User %s selected repo: %s", submission.User.Username, repo)
 
