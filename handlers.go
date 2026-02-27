@@ -252,6 +252,7 @@ func postPRToSlack(ctx context.Context, rdb *redis.Client, pr *PRItem, repo, pos
 				"author":     pr.Author.Login,
 				"title":      pr.Title,
 				"posted_by":  postedBy,
+				"branch":     pr.HeadRefName,
 			},
 		},
 	}
