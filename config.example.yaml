@@ -1,0 +1,27 @@
+# SlashVibePR Configuration File
+# Copy this file to config.yaml and customise as needed.
+# Secrets (REDIS_PASSWORD, SLACK_BOT_TOKEN) are read from environment variables
+# (or .env) and must NOT be placed here.
+
+# Redis — connection to the external Redis server
+redis:
+  addr: host.docker.internal:6379   # host:port of your Redis instance
+
+# Redis pub/sub channels the service subscribes to
+channels:
+  slash_commands: slack-commands                    # incoming /pr events
+  view_submissions: slack-relay-view-submission     # Slack modal submissions
+  poppit_output: poppit:command-output              # Poppit command results
+
+# Redis lists the service publishes to
+lists:
+  poppit_commands: poppit:commands                  # outgoing Poppit tasks
+  slackliner_messages: slack_messages               # outgoing SlackLiner messages
+
+# Slack
+slack:
+  channel_id: C0123456789    # target channel where PRs are posted (replace with real ID)
+
+# Logging: DEBUG | INFO | WARN | ERROR
+logging:
+  level: INFO

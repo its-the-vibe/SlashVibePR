@@ -1,0 +1,17 @@
+services:
+  slashvibeprs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: slashvibeprs:latest
+    container_name: slashvibeprs
+    read_only: true
+    env_file:
+      - .env
+    environment:
+      - CONFIG_FILE=/etc/slashvibeprs/config.yaml
+    volumes:
+      - ./config.yaml:/etc/slashvibeprs/config.yaml:ro
+    restart: on-failure:10
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

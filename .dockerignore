@@ -1,0 +1,9 @@
+.git
+.gitignore
+README.md
+*.md
+slashvibeprs
+slashvibeprs.exe
+*.test
+*.out
+.env
