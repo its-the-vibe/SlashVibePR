@@ -11,19 +11,18 @@ const (
 	prModalCallbackID   = "select_pr_modal"
 )
 
-// createRepoChooserModal returns a modal for the user to enter a repository name.
-// If initialRepo is non-empty it is pre-populated in the text input.
-func createRepoChooserModal(initialRepo string) slack.ModalViewRequest {
-	repoInput := &slack.PlainTextInputBlockElement{
-		Type:     slack.METPlainTextInput,
-		ActionID: "repo_input",
-		Placeholder: &slack.TextBlockObject{
-			Type: slack.PlainTextType,
-			Text: "e.g. org/repo",
-		},
-	}
-	if initialRepo != "" {
-		repoInput.InitialValue = initialRepo
+// createRepoChooserModal returns a modal for the user to select a repository
+// from a dropdown populated with the configured repository list.
+func createRepoChooserModal(repos []string) slack.ModalViewRequest {
+	options := make([]*slack.OptionBlockObject, 0, len(repos))
+	for _, repo := range repos {
+		options = append(options, &slack.OptionBlockObject{
+			Text: &slack.TextBlockObject{
+				Type: slack.PlainTextType,
+				Text: repo,
+			},
+			Value: repo,
+		})
 	}
 
 	return slack.ModalViewRequest{
@@ -47,7 +46,7 @@ func createRepoChooserModal(initialRepo string) slack.ModalViewRequest {
 					Type: slack.MBTSection,
 					Text: &slack.TextBlockObject{
 						Type: slack.MarkdownType,
-						Text: "Enter the repository in `org/repo` format to list its open pull requests.",
+						Text: "Select a repository to list its open pull requests.",
 					},
 				},
 				&slack.InputBlock{
@@ -57,7 +56,15 @@ func createRepoChooserModal(initialRepo string) slack.ModalViewRequest {
 						Type: slack.PlainTextType,
 						Text: "Repository",
 					},
-					Element: repoInput,
+					Element: &slack.SelectBlockElement{
+						Type:     slack.OptTypeStatic,
+						ActionID: "repo_input",
+						Placeholder: &slack.TextBlockObject{
+							Type: slack.PlainTextType,
+							Text: "Choose a repository",
+						},
+						Options: options,
+					},
 				},
 			},
 		},

@@ -55,8 +55,11 @@ func handleSlashCommand(ctx context.Context, slackClient *slack.Client, payload 
 
 	Info("Received /pr command from user %s", cmd.UserName)
 
-	repo := strings.TrimSpace(cmd.Text)
-	modal := createRepoChooserModal(repo)
+	if len(config.Repos) == 0 {
+		Warn("No repositories configured; /pr command from user %s will show an empty dropdown", cmd.UserName)
+	}
+
+	modal := createRepoChooserModal(config.Repos)
 	if _, err := slackClient.OpenView(cmd.TriggerID, modal); err != nil {
 		Error("Error opening repo chooser modal: %v", err)
 		return

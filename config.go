@@ -18,6 +18,7 @@ type Config struct {
 	RedisSlackLinerList        string
 	SlackBotToken              string
 	SlackChannelID             string
+	Repos                      []string
 	LogLevel                   string
 }
 
@@ -34,12 +35,13 @@ type configFile struct {
 		PoppitOutput    string `yaml:"poppit_output"`
 	} `yaml:"channels"`
 	Lists struct {
-		PoppitCommands    string `yaml:"poppit_commands"`
+		PoppitCommands     string `yaml:"poppit_commands"`
 		SlackLinerMessages string `yaml:"slackliner_messages"`
 	} `yaml:"lists"`
 	Slack struct {
 		ChannelID string `yaml:"channel_id"`
 	} `yaml:"slack"`
+	Repos   []string `yaml:"repos"`
 	Logging struct {
 		Level string `yaml:"level"`
 	} `yaml:"logging"`
@@ -85,6 +87,7 @@ func loadConfig() Config {
 		RedisSlackLinerList:        cf.Lists.SlackLinerMessages,
 		SlackBotToken:              os.Getenv("SLACK_BOT_TOKEN"),
 		SlackChannelID:             cf.Slack.ChannelID,
+		Repos:                      cf.Repos,
 		LogLevel:                   cf.Logging.Level,
 	}
 }
@@ -118,6 +121,7 @@ func loadConfigFromBytes(data []byte, redisPassword, slackBotToken string) (Conf
 		RedisSlackLinerList:        cf.Lists.SlackLinerMessages,
 		SlackBotToken:              slackBotToken,
 		SlackChannelID:             cf.Slack.ChannelID,
+		Repos:                      cf.Repos,
 		LogLevel:                   cf.Logging.Level,
 	}, nil
 }

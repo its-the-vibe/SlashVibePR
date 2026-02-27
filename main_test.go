@@ -12,7 +12,7 @@ import (
 // ---- Modal creation tests ----
 
 func TestCreateRepoChooserModalStructure(t *testing.T) {
-	modal := createRepoChooserModal("")
+	modal := createRepoChooserModal([]string{"org/repo"})
 
 	if modal.Type != slack.VTModal {
 		t.Errorf("expected modal type 'modal', got %q", modal.Type)
@@ -28,20 +28,27 @@ func TestCreateRepoChooserModalStructure(t *testing.T) {
 	}
 }
 
-func TestCreateRepoChooserModalWithInitialValue(t *testing.T) {
-	modal := createRepoChooserModal("org/repo")
+func TestCreateRepoChooserModalDropdownOptions(t *testing.T) {
+	repos := []string{"org/repo1", "org/repo2"}
+	modal := createRepoChooserModal(repos)
 
 	inputBlock, ok := modal.Blocks.BlockSet[1].(*slack.InputBlock)
 	if !ok {
 		t.Fatal("expected second block to be an InputBlock")
 	}
 
-	input, ok := inputBlock.Element.(*slack.PlainTextInputBlockElement)
+	selectEl, ok := inputBlock.Element.(*slack.SelectBlockElement)
 	if !ok {
-		t.Fatal("expected element to be PlainTextInputBlockElement")
+		t.Fatal("expected element to be SelectBlockElement")
 	}
-	if input.InitialValue != "org/repo" {
-		t.Errorf("expected initial value 'org/repo', got %q", input.InitialValue)
+	if len(selectEl.Options) != 2 {
+		t.Errorf("expected 2 options, got %d", len(selectEl.Options))
+	}
+	if selectEl.Options[0].Value != "org/repo1" {
+		t.Errorf("expected first option value 'org/repo1', got %q", selectEl.Options[0].Value)
+	}
+	if selectEl.Options[1].Value != "org/repo2" {
+		t.Errorf("expected second option value 'org/repo2', got %q", selectEl.Options[1].Value)
 	}
 }
 
@@ -385,6 +392,9 @@ lists:
   slackliner_messages: my-slack-messages
 slack:
   channel_id: CMYCHANNEL
+repos:
+  - my-org/repo-a
+  - my-org/repo-b
 logging:
   level: DEBUG
 `)
@@ -411,6 +421,15 @@ logging:
 	}
 	if config.LogLevel != "DEBUG" {
 		t.Errorf("unexpected LogLevel: %q", config.LogLevel)
+	}
+	if len(config.Repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d", len(config.Repos))
+	}
+	if config.Repos[0] != "my-org/repo-a" {
+		t.Errorf("expected Repos[0] 'my-org/repo-a', got %q", config.Repos[0])
+	}
+	if config.Repos[1] != "my-org/repo-b" {
+		t.Errorf("expected Repos[1] 'my-org/repo-b', got %q", config.Repos[1])
 	}
 }
 
