@@ -47,7 +47,7 @@ func createRepoChooserModal() slack.ModalViewRequest {
 					},
 					Element: &slack.SelectBlockElement{
 						Type:     slack.OptTypeExternal,
-						ActionID: "repo_input",
+						ActionID: "SlashVibeIssue",
 						Placeholder: &slack.TextBlockObject{
 							Type: slack.PlainTextType,
 							Text: "Search for a repo...",
