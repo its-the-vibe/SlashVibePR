@@ -292,6 +292,56 @@ func TestSlackLinerMessageSerialization(t *testing.T) {
 	}
 }
 
+func TestPostPRToSlackMetadataIncludesBranch(t *testing.T) {
+	pr := &PRItem{
+		Number:      42,
+		Title:       "Fix bug",
+		URL:         "https://github.com/example/repo/pull/42",
+		HeadRefName: "feature/fix-bug",
+	}
+	pr.Author.Login = "octocat"
+
+	msg := SlackLinerMessage{
+		Channel: "C12345",
+		Text:    "test",
+		TTL:     86400,
+		Metadata: map[string]interface{}{
+			"event_type": "pr_posted",
+			"event_payload": map[string]interface{}{
+				"pr_number":  pr.Number,
+				"repository": "example/repo",
+				"pr_url":     pr.URL,
+				"author":     pr.Author.Login,
+				"title":      pr.Title,
+				"posted_by":  "alice",
+				"branch":     pr.HeadRefName,
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Failed to marshal SlackLinerMessage: %v", err)
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("Failed to unmarshal result: %v", err)
+	}
+
+	metadata, ok := out["metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected metadata to be a map")
+	}
+	payload, ok := metadata["event_payload"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected event_payload to be a map")
+	}
+	if payload["branch"] != "feature/fix-bug" {
+		t.Errorf("expected branch 'feature/fix-bug', got %v", payload["branch"])
+	}
+}
+
 // ---- Config tests ----
 
 func TestGetEnvDefault(t *testing.T) {
