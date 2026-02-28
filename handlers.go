@@ -12,10 +12,10 @@ import (
 )
 
 const (
-	poppitPRListType  = "slash-vibe-pr-list"
-	prSessionKeyTTL   = time.Hour
+	poppitPRListType   = "slash-vibe-pr-list"
+	prSessionKeyTTL    = time.Hour
 	prSessionKeyPrefix = "slashvibeprs:"
-	defaultPRLimit    = 50
+	defaultPRLimit     = 50
 )
 
 // subscribeToSlashCommands subscribes to the Redis slash-commands channel and
@@ -106,7 +106,7 @@ func handleViewSubmission(ctx context.Context, rdb *redis.Client, slackClient *s
 //  1. Opens a loading modal (using the submission's trigger_id).
 //  2. Sends a Poppit command to run `gh pr list`.
 func handleRepoSelection(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, submission ViewSubmission, config Config) {
-	repoName := extractTextValue(submission.View.State.Values, "repo_block", "repo_input")
+	repoName := extractTextValue(submission.View.State.Values, "repo_block", slashVibeIssueActionID)
 	if repoName == "" {
 		Warn("Repo selection submission has empty repo")
 		return

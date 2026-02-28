@@ -43,8 +43,8 @@ func TestCreateRepoChooserModalUsesExternalSelect(t *testing.T) {
 	if selectEl.Type != slack.OptTypeExternal {
 		t.Errorf("expected external select type, got %q", selectEl.Type)
 	}
-	if selectEl.ActionID != "repo_input" {
-		t.Errorf("expected action_id 'repo_input', got %q", selectEl.ActionID)
+	if selectEl.ActionID != slashVibeIssueActionID {
+		t.Errorf("expected action_id %q, got %q", slashVibeIssueActionID, selectEl.ActionID)
 	}
 }
 
@@ -264,8 +264,8 @@ func TestSlackLinerMessageSerialization(t *testing.T) {
 
 	msg := SlackLinerMessage{
 		Channel: config.SlackChannelID,
-		Text: fmt.Sprintf("📋 PR #%d: %s", pr.Number, pr.Title),
-		TTL:  86400,
+		Text:    fmt.Sprintf("📋 PR #%d: %s", pr.Number, pr.Title),
+		TTL:     86400,
 		Metadata: map[string]interface{}{
 			"event_type": "pr_posted",
 			"event_payload": map[string]interface{}{
