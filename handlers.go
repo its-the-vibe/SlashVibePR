@@ -118,15 +118,16 @@ func handleRepoSelection(ctx context.Context, rdb *redis.Client, slackClient *sl
 
 	Info("User %s selected repo: %s", submission.User.Username, repo)
 
-	// Push the loading modal (replaces the repo chooser modal, no need to close it first).
+	// Update the modal to show loading status (replaces the repo chooser modal).
+	// Use UpdateView instead of PushView to avoid trigger_id expiration issues with Redis queuing.
 	loadingModal := createLoadingModal()
-	viewResp, err := slackClient.PushView(submission.TriggerID, loadingModal)
+	_, err := slackClient.UpdateView(loadingModal, "", "", submission.View.ID)
 	if err != nil {
-		Error("Error pushing loading modal: %v", err)
+		Error("Error updating modal to loading state: %v", err)
 		return
 	}
 
-	viewID := viewResp.ID
+	viewID := submission.View.ID
 	Debug("Loading modal opened with view_id: %s", viewID)
 
 	if err := sendPRListCommand(ctx, rdb, repo, viewID, submission.User.Username, config); err != nil {
