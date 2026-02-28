@@ -136,7 +136,8 @@ func handleRepoSelection(ctx context.Context, rdb *redis.Client, slackClient *sl
 }
 
 // sendPRListCommandWithHash pushes a Poppit command to list open PRs for the given repo.
-// It includes the view hash in metadata so handlePoppitOutput can use it for UpdateView.
+// The view_id is passed in metadata so handlePoppitOutput can update the correct modal.
+// Note: view_hash is NOT stored as it becomes stale. We fetch the current hash when needed.
 func sendPRListCommandWithHash(ctx context.Context, rdb *redis.Client, repo, viewID, viewHash, username string, config Config) error {
 	cmd := fmt.Sprintf(
 		"gh pr list --repo %s --json number,title,author,url,headRefName --limit %d",
@@ -150,10 +151,9 @@ func sendPRListCommandWithHash(ctx context.Context, rdb *redis.Client, repo, vie
 		Dir:      "/tmp",
 		Commands: []string{cmd},
 		Metadata: map[string]interface{}{
-			"view_id":   viewID,
-			"view_hash": viewHash,
-			"repo":      repo,
-			"username":  username,
+			"view_id":  viewID,
+			"repo":     repo,
+			"username": username,
 		},
 	}
 
@@ -321,12 +321,11 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 	}
 
 	viewID, _ := metadata["view_id"].(string)
-	viewHash, _ := metadata["view_hash"].(string)
 	repo, _ := metadata["repo"].(string)
 	username, _ := metadata["username"].(string)
 
-	if viewID == "" || repo == "" || viewHash == "" {
-		Warn("Missing view_id, view_hash, or repo in Poppit output metadata")
+	if viewID == "" || repo == "" {
+		Warn("Missing view_id or repo in Poppit output metadata")
 		return
 	}
 
@@ -334,13 +333,13 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 	var prs []PRItem
 	if err := json.Unmarshal([]byte(strings.TrimSpace(output.Output)), &prs); err != nil {
 		Error("Error parsing PR list JSON for repo %s: %v", repo, err)
-		updateModalWithError(slackClient, viewID, viewHash, "Failed to parse the pull request list. Please try again.")
+		updateModalWithErrorByID(slackClient, viewID, "Failed to parse the pull request list. Please try again.")
 		return
 	}
 
 	if len(prs) == 0 {
 		Info("No open PRs found for repo %s (user: %s)", repo, username)
-		updateModalWithError(slackClient, viewID, viewHash, fmt.Sprintf("No open pull requests found for `%s`.", repo))
+		updateModalWithErrorByID(slackClient, viewID, fmt.Sprintf("No open pull requests found for `%s`.", repo))
 		return
 	}
 
@@ -368,8 +367,9 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 	}
 
 	// Replace the loading modal with the PR chooser.
+	// Use empty hash to skip Slack's optimistic lock check, avoiding stale hash issues.
 	prModal := createPRChooserModal(prs, repo, string(metaJSON))
-	if _, err := slackClient.UpdateView(prModal, "", viewHash, viewID); err != nil {
+	if _, err := slackClient.UpdateView(prModal, "", "", viewID); err != nil {
 		Error("Error updating modal with PR list: %v", err)
 		return
 	}
@@ -377,7 +377,16 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 	Debug("PR chooser modal updated successfully for view_id: %s", viewID)
 }
 
+// updateModalWithErrorByID replaces the current modal content with an error message.
+// It uses an empty hash to skip Slack's optimistic lock check, avoiding stale hash issues.
+func updateModalWithErrorByID(slackClient *slack.Client, viewID, message string) {
+	if _, err := slackClient.UpdateView(createErrorModal(message), "", "", viewID); err != nil {
+		Error("Error updating modal with error message: %v", err)
+	}
+}
+
 // updateModalWithError replaces the current modal content with an error message using the provided hash.
+// DEPRECATED: Use updateModalWithErrorByID instead to avoid hash staleness issues.
 func updateModalWithError(slackClient *slack.Client, viewID, viewHash, message string) {
 	if _, err := slackClient.UpdateView(createErrorModal(message), "", viewHash, viewID); err != nil {
 		Error("Error updating modal with error message: %v", err)
