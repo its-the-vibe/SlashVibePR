@@ -22,6 +22,10 @@ lists:
 slack:
   channel_id: C0123456789    # target channel where PRs are posted (replace with real ID)
 
+# GitHub
+github:
+  org: my-org                # organisation name prepended to selected repository
+
 # Logging: DEBUG | INFO | WARN | ERROR
 logging:
   level: INFO

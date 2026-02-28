@@ -12,7 +12,7 @@ import (
 // ---- Modal creation tests ----
 
 func TestCreateRepoChooserModalStructure(t *testing.T) {
-	modal := createRepoChooserModal("")
+	modal := createRepoChooserModal()
 
 	if modal.Type != slack.VTModal {
 		t.Errorf("expected modal type 'modal', got %q", modal.Type)
@@ -28,20 +28,23 @@ func TestCreateRepoChooserModalStructure(t *testing.T) {
 	}
 }
 
-func TestCreateRepoChooserModalWithInitialValue(t *testing.T) {
-	modal := createRepoChooserModal("org/repo")
+func TestCreateRepoChooserModalUsesExternalSelect(t *testing.T) {
+	modal := createRepoChooserModal()
 
 	inputBlock, ok := modal.Blocks.BlockSet[1].(*slack.InputBlock)
 	if !ok {
 		t.Fatal("expected second block to be an InputBlock")
 	}
 
-	input, ok := inputBlock.Element.(*slack.PlainTextInputBlockElement)
+	selectEl, ok := inputBlock.Element.(*slack.SelectBlockElement)
 	if !ok {
-		t.Fatal("expected element to be PlainTextInputBlockElement")
+		t.Fatal("expected element to be SelectBlockElement")
 	}
-	if input.InitialValue != "org/repo" {
-		t.Errorf("expected initial value 'org/repo', got %q", input.InitialValue)
+	if selectEl.Type != slack.OptTypeExternal {
+		t.Errorf("expected external select type, got %q", selectEl.Type)
+	}
+	if selectEl.ActionID != slashVibeIssueActionID {
+		t.Errorf("expected action_id %q, got %q", slashVibeIssueActionID, selectEl.ActionID)
 	}
 }
 
@@ -261,8 +264,8 @@ func TestSlackLinerMessageSerialization(t *testing.T) {
 
 	msg := SlackLinerMessage{
 		Channel: config.SlackChannelID,
-		Text: fmt.Sprintf("📋 PR #%d: %s", pr.Number, pr.Title),
-		TTL:  86400,
+		Text:    fmt.Sprintf("📋 PR #%d: %s", pr.Number, pr.Title),
+		TTL:     86400,
 		Metadata: map[string]interface{}{
 			"event_type": "pr_posted",
 			"event_payload": map[string]interface{}{
@@ -385,6 +388,8 @@ lists:
   slackliner_messages: my-slack-messages
 slack:
   channel_id: CMYCHANNEL
+github:
+  org: my-org
 logging:
   level: DEBUG
 `)
@@ -408,6 +413,9 @@ logging:
 	}
 	if config.SlackChannelID != "CMYCHANNEL" {
 		t.Errorf("unexpected SlackChannelID: %q", config.SlackChannelID)
+	}
+	if config.GitHubOrg != "my-org" {
+		t.Errorf("unexpected GitHubOrg: %q", config.GitHubOrg)
 	}
 	if config.LogLevel != "DEBUG" {
 		t.Errorf("unexpected LogLevel: %q", config.LogLevel)

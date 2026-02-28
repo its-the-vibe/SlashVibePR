@@ -7,25 +7,14 @@ import (
 )
 
 const (
-	repoModalCallbackID = "select_pr_repo_modal"
-	prModalCallbackID   = "select_pr_modal"
+	repoModalCallbackID    = "select_pr_repo_modal"
+	prModalCallbackID      = "select_pr_modal"
+	slashVibeIssueActionID = "SlashVibeIssue"
 )
 
-// createRepoChooserModal returns a modal for the user to enter a repository name.
-// If initialRepo is non-empty it is pre-populated in the text input.
-func createRepoChooserModal(initialRepo string) slack.ModalViewRequest {
-	repoInput := &slack.PlainTextInputBlockElement{
-		Type:     slack.METPlainTextInput,
-		ActionID: "repo_input",
-		Placeholder: &slack.TextBlockObject{
-			Type: slack.PlainTextType,
-			Text: "e.g. org/repo",
-		},
-	}
-	if initialRepo != "" {
-		repoInput.InitialValue = initialRepo
-	}
-
+// createRepoChooserModal returns a modal for the user to select a repository
+// from a dropdown populated by OctoCatalog (external select).
+func createRepoChooserModal() slack.ModalViewRequest {
 	return slack.ModalViewRequest{
 		Type:       slack.VTModal,
 		CallbackID: repoModalCallbackID,
@@ -47,7 +36,7 @@ func createRepoChooserModal(initialRepo string) slack.ModalViewRequest {
 					Type: slack.MBTSection,
 					Text: &slack.TextBlockObject{
 						Type: slack.MarkdownType,
-						Text: "Enter the repository in `org/repo` format to list its open pull requests.",
+						Text: "Select a repository to list its open pull requests.",
 					},
 				},
 				&slack.InputBlock{
@@ -57,7 +46,14 @@ func createRepoChooserModal(initialRepo string) slack.ModalViewRequest {
 						Type: slack.PlainTextType,
 						Text: "Repository",
 					},
-					Element: repoInput,
+					Element: &slack.SelectBlockElement{
+						Type:     slack.OptTypeExternal,
+						ActionID: slashVibeIssueActionID,
+						Placeholder: &slack.TextBlockObject{
+							Type: slack.PlainTextType,
+							Text: "Search for a repo...",
+						},
+					},
 				},
 			},
 		},
