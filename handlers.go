@@ -105,7 +105,7 @@ func handleViewSubmission(ctx context.Context, rdb *redis.Client, slackClient *s
 }
 
 // handleRepoSelection processes the repo-chooser modal submission:
-//  1. Opens a loading modal (using the submission's trigger_id).
+//  1. Pushes the loading modal (replacing the repo-chooser modal).
 //  2. Sends a Poppit command to run `gh pr list`.
 func handleRepoSelection(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, submission ViewSubmission, config Config) {
 	repoName := extractTextValue(submission.View.State.Values, "repo_block", slashVibeIssueActionID)
@@ -118,27 +118,25 @@ func handleRepoSelection(ctx context.Context, rdb *redis.Client, slackClient *sl
 
 	Info("User %s selected repo: %s", submission.User.Username, repo)
 
-	// Open a loading modal with the trigger_id from the submission (valid for 3s).
+	// Push the loading modal (replaces the repo chooser modal, no need to close it first).
 	loadingModal := createLoadingModal()
-	viewResp, err := slackClient.OpenView(submission.TriggerID, loadingModal)
+	viewResp, err := slackClient.PushView(submission.TriggerID, loadingModal)
 	if err != nil {
-		Error("Error opening loading modal: %v", err)
+		Error("Error pushing loading modal: %v", err)
 		return
 	}
 
 	viewID := viewResp.ID
-	viewHash := viewResp.Hash
-	Debug("Loading modal opened with view_id: %s, hash: %s", viewID, viewHash)
+	Debug("Loading modal opened with view_id: %s", viewID)
 
-	if err := sendPRListCommandWithHash(ctx, rdb, repo, viewID, viewHash, submission.User.Username, config); err != nil {
+	if err := sendPRListCommand(ctx, rdb, repo, viewID, submission.User.Username, config); err != nil {
 		Error("Error sending Poppit command for repo %s: %v", repo, err)
 	}
 }
 
-// sendPRListCommandWithHash pushes a Poppit command to list open PRs for the given repo.
+// sendPRListCommand pushes a Poppit command to list open PRs for the given repo.
 // The view_id is passed in metadata so handlePoppitOutput can update the correct modal.
-// Note: view_hash is NOT stored as it becomes stale. We fetch the current hash when needed.
-func sendPRListCommandWithHash(ctx context.Context, rdb *redis.Client, repo, viewID, viewHash, username string, config Config) error {
+func sendPRListCommand(ctx context.Context, rdb *redis.Client, repo, viewID, username string, config Config) error {
 	cmd := fmt.Sprintf(
 		"gh pr list --repo %s --json number,title,author,url,headRefName --limit %d",
 		repo, defaultPRLimit,
