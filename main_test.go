@@ -249,8 +249,79 @@ func TestHandleSlashCommandIgnoresNonPR(t *testing.T) {
 					t.Errorf("command %q caused a panic: %v", cmd, r)
 				}
 			}()
-			handleSlashCommand(context.Background(), nil, string(payload), Config{})
+			handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
 		}()
+	}
+}
+
+func TestHandleSlashCommandWithRepoArgSkipsRepoChooser(t *testing.T) {
+	// When a repo argument is provided, handleSlashCommand should attempt to open
+	// the loading modal (not the repo chooser). With a nil Slack client this panics,
+	// so we confirm it does NOT return silently before touching the client.
+	payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: "myrepo", TriggerID: "tid"})
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+	}()
+	if !panicked {
+		t.Error("expected a panic when Slack client is nil and repo arg is provided (loading modal path)")
+	}
+}
+
+func TestHandleSlashCommandWithoutRepoArgOpensRepoChooser(t *testing.T) {
+	// When no repo argument is provided, handleSlashCommand should attempt to open
+	// the repo chooser modal. With a nil Slack client this panics.
+	payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: "", TriggerID: "tid"})
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
+	}()
+	if !panicked {
+		t.Error("expected a panic when Slack client is nil and no repo arg is provided (repo chooser path)")
+	}
+}
+
+func TestHandleSlashCommandInvalidRepoArgIsIgnored(t *testing.T) {
+	// An invalid repo arg (e.g. containing slashes or shell metacharacters) should
+	// be rejected silently — the function should return without touching the Slack client.
+	invalidArgs := []string{"org/repo", "repo; rm -rf /", "repo name", "../etc"}
+	for _, arg := range invalidArgs {
+		payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: arg, TriggerID: "tid"})
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("invalid repo arg %q caused a panic: %v", arg, r)
+				}
+			}()
+			handleSlashCommand(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+		}()
+	}
+}
+
+func TestHandleSlashCommandWhitespaceOnlyTextOpensRepoChooser(t *testing.T) {
+	// Whitespace-only text should be treated as no repo argument.
+	payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: "   ", TriggerID: "tid"})
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
+	}()
+	if !panicked {
+		t.Error("expected a panic when Slack client is nil and text is whitespace only (repo chooser path)")
 	}
 }
 

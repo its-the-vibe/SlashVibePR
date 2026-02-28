@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/slack-go/slack"
 )
+
+// validRepoName matches GitHub repository names: alphanumerics, hyphens, underscores, and dots.
+var validRepoName = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 const (
 	poppitPRListType   = "slash-vibe-pr-list"
@@ -35,14 +39,16 @@ func subscribeToSlashCommands(ctx context.Context, rdb *redis.Client, slackClien
 			if msg == nil {
 				continue
 			}
-			handleSlashCommand(ctx, slackClient, msg.Payload, config)
+			handleSlashCommand(ctx, rdb, slackClient, msg.Payload, config)
 		}
 	}
 }
 
 // handleSlashCommand processes a raw slash command payload. Only /pr is handled;
 // all other commands are silently ignored.
-func handleSlashCommand(ctx context.Context, slackClient *slack.Client, payload string, config Config) {
+// If a repo name is supplied as the command text (e.g. /pr myrepo), the repo
+// chooser modal is skipped and the PR chooser is loaded directly.
+func handleSlashCommand(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, payload string, config Config) {
 	var cmd SlackCommand
 	if err := json.Unmarshal([]byte(payload), &cmd); err != nil {
 		Error("Error unmarshaling slash command: %v", err)
@@ -54,6 +60,29 @@ func handleSlashCommand(ctx context.Context, slackClient *slack.Client, payload 
 	}
 
 	Info("Received /pr command from user %s", cmd.UserName)
+
+	repoArg := strings.TrimSpace(cmd.Text)
+	if repoArg != "" {
+		if !validRepoName.MatchString(repoArg) {
+			Warn("Invalid repo argument from user %s: %q", cmd.UserName, repoArg)
+			return
+		}
+		// Repo name provided — skip the repo chooser and load PRs directly.
+		repo := config.GitHubOrg + "/" + repoArg
+		Info("Repo argument provided, skipping repo chooser: %s", repo)
+
+		loadingModal := createLoadingModal()
+		viewResp, err := slackClient.OpenView(cmd.TriggerID, loadingModal)
+		if err != nil {
+			Error("Error opening loading modal: %v", err)
+			return
+		}
+
+		if err := sendPRListCommandWithHash(ctx, rdb, repo, viewResp.ID, "", cmd.UserName, config); err != nil {
+			Error("Error sending Poppit command for repo %s: %v", repo, err)
+		}
+		return
+	}
 
 	modal := createRepoChooserModal()
 	var viewResp *slack.ViewResponse
