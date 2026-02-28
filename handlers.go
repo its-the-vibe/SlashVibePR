@@ -56,12 +56,14 @@ func handleSlashCommand(ctx context.Context, slackClient *slack.Client, payload 
 	Info("Received /pr command from user %s", cmd.UserName)
 
 	modal := createRepoChooserModal()
-	if _, err := slackClient.OpenView(cmd.TriggerID, modal); err != nil {
+	var viewResp *slack.ViewResponse
+	var err error
+	if viewResp, err = slackClient.OpenView(cmd.TriggerID, modal); err != nil {
 		Error("Error opening repo chooser modal: %v", err)
 		return
 	}
 
-	Debug("Repo chooser modal opened successfully")
+	Debug("Repo chooser modal opened successfully with view_id: %s", viewResp.ID)
 }
 
 // subscribeToViewSubmissions subscribes to the Redis view-submission channel and
