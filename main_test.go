@@ -508,7 +508,7 @@ func TestHandleBlockActionWithRepoOpensLoadingModal(t *testing.T) {
 			SelectedOption struct {
 				Value string `json:"value"`
 			} `json:"selected_option"`
-		}{{ActionID: slashVibeIssueActionID, SelectedOption: struct {
+		}{{ActionID: slashVibeIssueActionID, BlockID: repoBlockID, SelectedOption: struct {
 			Value string `json:"value"`
 		}{Value: "my-repo"}}},
 	})
