@@ -43,6 +43,7 @@ func main() {
 
 	go subscribeToSlashCommands(ctx, rdb, slackClient, config)
 	go subscribeToViewSubmissions(ctx, rdb, slackClient, config)
+	go subscribeToBlockActions(ctx, rdb, slackClient, config)
 	go subscribeToPoppitOutput(ctx, rdb, slackClient, config)
 
 	log.Println("SlashVibePR service started")

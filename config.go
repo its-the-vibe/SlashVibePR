@@ -13,6 +13,7 @@ type Config struct {
 	RedisPassword              string
 	RedisChannel               string
 	RedisViewSubmissionChannel string
+	RedisBlockActionsChannel   string
 	RedisPoppitList            string
 	RedisPoppitOutputChannel   string
 	RedisSlackLinerList        string
@@ -32,6 +33,7 @@ type configFile struct {
 	Channels struct {
 		SlashCommands   string `yaml:"slash_commands"`
 		ViewSubmissions string `yaml:"view_submissions"`
+		BlockActions    string `yaml:"block_actions"`
 		PoppitOutput    string `yaml:"poppit_output"`
 	} `yaml:"channels"`
 	Lists struct {
@@ -55,6 +57,7 @@ func defaultConfigFile() configFile {
 	cf.Redis.Addr = "host.docker.internal:6379"
 	cf.Channels.SlashCommands = "slack-commands"
 	cf.Channels.ViewSubmissions = "slack-relay-view-submission"
+	cf.Channels.BlockActions = "slack-relay-block-actions"
 	cf.Channels.PoppitOutput = "poppit:command-output"
 	cf.Lists.PoppitCommands = "poppit:commands"
 	cf.Lists.SlackLinerMessages = "slack_messages"
@@ -84,6 +87,7 @@ func loadConfig() Config {
 		RedisPassword:              os.Getenv("REDIS_PASSWORD"),
 		RedisChannel:               cf.Channels.SlashCommands,
 		RedisViewSubmissionChannel: cf.Channels.ViewSubmissions,
+		RedisBlockActionsChannel:   cf.Channels.BlockActions,
 		RedisPoppitList:            cf.Lists.PoppitCommands,
 		RedisPoppitOutputChannel:   cf.Channels.PoppitOutput,
 		RedisSlackLinerList:        cf.Lists.SlackLinerMessages,
@@ -118,6 +122,7 @@ func loadConfigFromBytes(data []byte, redisPassword, slackBotToken string) (Conf
 		RedisPassword:              redisPassword,
 		RedisChannel:               cf.Channels.SlashCommands,
 		RedisViewSubmissionChannel: cf.Channels.ViewSubmissions,
+		RedisBlockActionsChannel:   cf.Channels.BlockActions,
 		RedisPoppitList:            cf.Lists.PoppitCommands,
 		RedisPoppitOutputChannel:   cf.Channels.PoppitOutput,
 		RedisSlackLinerList:        cf.Lists.SlackLinerMessages,

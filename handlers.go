@@ -126,40 +126,73 @@ func handleViewSubmission(ctx context.Context, rdb *redis.Client, slackClient *s
 	}
 
 	switch submission.View.CallbackID {
-	case repoModalCallbackID:
-		handleRepoSelection(ctx, rdb, slackClient, submission, config)
 	case prModalCallbackID:
 		handlePRSelection(ctx, rdb, submission, config)
 	}
 }
 
-// handleRepoSelection processes the repo-chooser modal submission:
-//  1. Opens a loading modal (using the submission's trigger_id).
-//  2. Sends a Poppit command to run `gh pr list`.
-func handleRepoSelection(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, submission ViewSubmission, config Config) {
-	repoName := extractTextValue(submission.View.State.Values, "repo_block", slashVibeIssueActionID)
+// subscribeToBlockActions subscribes to the Redis block-actions channel and
+// dispatches each event to handleBlockAction.
+func subscribeToBlockActions(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, config Config) {
+	pubsub := rdb.Subscribe(ctx, config.RedisBlockActionsChannel)
+	defer pubsub.Close()
+
+	Info("Subscribed to Redis channel: %s", config.RedisBlockActionsChannel)
+
+	ch := pubsub.Channel()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case msg := <-ch:
+			if msg == nil {
+				continue
+			}
+			handleBlockAction(ctx, rdb, slackClient, msg.Payload, config)
+		}
+	}
+}
+
+// handleBlockAction processes a block_actions event from the repo-chooser modal.
+// When the user selects a repository from the external select, this opens a
+// loading modal using the fresh trigger_id and sends the Poppit PR list command.
+func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, payload string, config Config) {
+	var action BlockActionPayload
+	if err := json.Unmarshal([]byte(payload), &action); err != nil {
+		Error("Error unmarshaling block action: %v", err)
+		return
+	}
+
+	if len(action.Actions) == 0 {
+		Warn("Block action payload has no actions")
+		return
+	}
+
+	// Only handle repo selection actions from the repo chooser modal.
+	first := action.Actions[0]
+	if first.ActionID != slashVibeIssueActionID {
+		return
+	}
+
+	repoName := first.SelectedOption.Value
 	if repoName == "" {
-		Warn("Repo selection submission has empty repo")
+		Warn("Block action for repo selection has empty value")
 		return
 	}
 
 	repo := config.GitHubOrg + "/" + repoName
+	Info("User %s selected repo via block action: %s", action.User.Username, repo)
 
-	Info("User %s selected repo: %s", submission.User.Username, repo)
-
-	// Open a loading modal with the trigger_id from the submission (valid for 3s).
 	loadingModal := createLoadingModal()
-	viewResp, err := slackClient.OpenView(submission.TriggerID, loadingModal)
+	viewResp, err := slackClient.OpenView(action.TriggerID, loadingModal)
 	if err != nil {
-		Error("Error opening loading modal: %v", err)
+		Error("Error opening loading modal from block action: %v", err)
 		return
 	}
 
-	viewID := viewResp.ID
-	viewHash := viewResp.Hash
-	Debug("Loading modal opened with view_id: %s, hash: %s", viewID, viewHash)
+	Debug("Loading modal opened from block action with view_id: %s", viewResp.ID)
 
-	if err := sendPRListCommandWithHash(ctx, rdb, repo, viewID, viewHash, submission.User.Username, config); err != nil {
+	if err := sendPRListCommandWithHash(ctx, rdb, repo, viewResp.ID, "", action.User.Username, config); err != nil {
 		Error("Error sending Poppit command for repo %s: %v", repo, err)
 	}
 }

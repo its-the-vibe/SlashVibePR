@@ -11,6 +11,7 @@ redis:
 channels:
   slash_commands: slack-commands                    # incoming /pr events
   view_submissions: slack-relay-view-submission     # Slack modal submissions
+  block_actions: slack-relay-block-actions          # Slack block actions (repo selection)
   poppit_output: poppit:command-output              # Poppit command results
 
 # Redis lists the service publishes to
