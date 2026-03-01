@@ -39,7 +39,7 @@ func createRepoChooserModal() slack.ModalViewRequest {
 					},
 				},
 				slack.NewActionBlock(
-					"repo_block",
+					repoBlockID,
 					&slack.SelectBlockElement{
 						Type:     slack.OptTypeExternal,
 						ActionID: slashVibeIssueActionID,

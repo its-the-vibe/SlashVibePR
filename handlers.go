@@ -20,6 +20,7 @@ const (
 	prSessionKeyTTL    = time.Hour
 	prSessionKeyPrefix = "slashvibeprs:"
 	defaultPRLimit     = 50
+	repoBlockID        = "repo_block"
 )
 
 // subscribeToSlashCommands subscribes to the Redis slash-commands channel and
@@ -78,7 +79,7 @@ func handleSlashCommand(ctx context.Context, rdb *redis.Client, slackClient *sla
 			return
 		}
 
-		if err := sendPRListCommandWithHash(ctx, rdb, repo, viewResp.ID, "", cmd.UserName, config); err != nil {
+		if err := sendPRListCommand(ctx, rdb, repo, viewResp.ID, cmd.UserName, config); err != nil {
 			Error("Error sending Poppit command for repo %s: %v", repo, err)
 		}
 		return
@@ -125,8 +126,7 @@ func handleViewSubmission(ctx context.Context, rdb *redis.Client, slackClient *s
 		return
 	}
 
-	switch submission.View.CallbackID {
-	case prModalCallbackID:
+	if submission.View.CallbackID == prModalCallbackID {
 		handlePRSelection(ctx, rdb, submission, config)
 	}
 }
@@ -174,6 +174,10 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 		return
 	}
 
+	if first.BlockID != repoBlockID {
+		return
+	}
+
 	repoName := first.SelectedOption.Value
 	if repoName == "" {
 		Warn("Block action for repo selection has empty value")
@@ -184,23 +188,22 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 	Info("User %s selected repo via block action: %s", action.User.Username, repo)
 
 	loadingModal := createLoadingModal()
-	viewResp, err := slackClient.OpenView(action.TriggerID, loadingModal)
+	viewResp, err := slackClient.PushView(action.TriggerID, loadingModal)
 	if err != nil {
-		Error("Error opening loading modal from block action: %v", err)
+		Error("Error pushing loading modal from block action: %v", err)
 		return
 	}
 
 	Debug("Loading modal opened from block action with view_id: %s", viewResp.ID)
 
-	if err := sendPRListCommandWithHash(ctx, rdb, repo, viewResp.ID, "", action.User.Username, config); err != nil {
+	if err := sendPRListCommand(ctx, rdb, repo, viewResp.ID, action.User.Username, config); err != nil {
 		Error("Error sending Poppit command for repo %s: %v", repo, err)
 	}
 }
 
-// sendPRListCommandWithHash pushes a Poppit command to list open PRs for the given repo.
+// sendPRListCommand pushes a Poppit command to list open PRs for the given repo.
 // The view_id is passed in metadata so handlePoppitOutput can update the correct modal.
-// Note: view_hash is NOT stored as it becomes stale. We fetch the current hash when needed.
-func sendPRListCommandWithHash(ctx context.Context, rdb *redis.Client, repo, viewID, viewHash, username string, config Config) error {
+func sendPRListCommand(ctx context.Context, rdb *redis.Client, repo, viewID, username string, config Config) error {
 	cmd := fmt.Sprintf(
 		"gh pr list --repo %s --json number,title,author,url,headRefName --limit %d",
 		repo, defaultPRLimit,
@@ -443,14 +446,6 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 // It uses an empty hash to skip Slack's optimistic lock check, avoiding stale hash issues.
 func updateModalWithErrorByID(slackClient *slack.Client, viewID, message string) {
 	if _, err := slackClient.UpdateView(createErrorModal(message), "", "", viewID); err != nil {
-		Error("Error updating modal with error message: %v", err)
-	}
-}
-
-// updateModalWithError replaces the current modal content with an error message using the provided hash.
-// DEPRECATED: Use updateModalWithErrorByID instead to avoid hash staleness issues.
-func updateModalWithError(slackClient *slack.Client, viewID, viewHash, message string) {
-	if _, err := slackClient.UpdateView(createErrorModal(message), "", viewHash, viewID); err != nil {
 		Error("Error updating modal with error message: %v", err)
 	}
 }
