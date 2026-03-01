@@ -14,6 +14,9 @@ const (
 
 // createRepoChooserModal returns a modal for the user to select a repository
 // from a dropdown populated by OctoCatalog (external select).
+// The select element is placed in an actions block so that choosing a repo
+// immediately dispatches a block_actions event (no submit button required),
+// which provides a fresh trigger_id and prevents the PR modal from being missed.
 func createRepoChooserModal() slack.ModalViewRequest {
 	return slack.ModalViewRequest{
 		Type:       slack.VTModal,
@@ -21,10 +24,6 @@ func createRepoChooserModal() slack.ModalViewRequest {
 		Title: &slack.TextBlockObject{
 			Type: slack.PlainTextType,
 			Text: "Select Repository",
-		},
-		Submit: &slack.TextBlockObject{
-			Type: slack.PlainTextType,
-			Text: "List PRs",
 		},
 		Close: &slack.TextBlockObject{
 			Type: slack.PlainTextType,
@@ -39,14 +38,9 @@ func createRepoChooserModal() slack.ModalViewRequest {
 						Text: "Select a repository to list its open pull requests.",
 					},
 				},
-				&slack.InputBlock{
-					Type:    slack.MBTInput,
-					BlockID: "repo_block",
-					Label: &slack.TextBlockObject{
-						Type: slack.PlainTextType,
-						Text: "Repository",
-					},
-					Element: &slack.SelectBlockElement{
+				slack.NewActionBlock(
+					"repo_block",
+					&slack.SelectBlockElement{
 						Type:     slack.OptTypeExternal,
 						ActionID: slashVibeIssueActionID,
 						Placeholder: &slack.TextBlockObject{
@@ -54,7 +48,7 @@ func createRepoChooserModal() slack.ModalViewRequest {
 							Text: "Search for a repo...",
 						},
 					},
-				},
+				),
 			},
 		},
 	}

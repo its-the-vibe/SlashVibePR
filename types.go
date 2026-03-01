@@ -71,3 +71,25 @@ type PRItem struct {
 type PRModalPrivateMetadata struct {
 	Repo string `json:"repo"`
 }
+
+// BlockActionPayload represents a Slack block_actions interaction payload.
+// It is published to the Redis block-actions channel by the Slack relay.
+type BlockActionPayload struct {
+	Type      string `json:"type"`
+	TriggerID string `json:"trigger_id"`
+	View      struct {
+		ID string `json:"id"`
+	} `json:"view"`
+	User struct {
+		ID       string `json:"id"`
+		Username string `json:"username"`
+	} `json:"user"`
+	Actions []struct {
+		ActionID       string `json:"action_id"`
+		BlockID        string `json:"block_id"`
+		Type           string `json:"type"`
+		SelectedOption struct {
+			Value string `json:"value"`
+		} `json:"selected_option"`
+	} `json:"actions"`
+}

@@ -9,6 +9,34 @@ import (
 	"github.com/slack-go/slack"
 )
 
+// assertNoPanic runs fn and fails the test if fn panics.
+func assertNoPanic(t *testing.T, label string, fn func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Errorf("%s caused a panic: %v", label, r)
+		}
+	}()
+	fn()
+}
+
+// assertPanics runs fn and fails the test if fn does NOT panic.
+func assertPanics(t *testing.T, label string, fn func()) {
+	t.Helper()
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		fn()
+	}()
+	if !panicked {
+		t.Errorf("%s: expected a panic but none occurred", label)
+	}
+}
+
 // ---- Modal creation tests ----
 
 func TestCreateRepoChooserModalStructure(t *testing.T) {
@@ -20,8 +48,8 @@ func TestCreateRepoChooserModalStructure(t *testing.T) {
 	if modal.CallbackID != repoModalCallbackID {
 		t.Errorf("expected callback_id %q, got %q", repoModalCallbackID, modal.CallbackID)
 	}
-	if modal.Submit == nil || modal.Submit.Text != "List PRs" {
-		t.Errorf("expected submit button labelled 'List PRs'")
+	if modal.Submit != nil {
+		t.Errorf("repo chooser modal must not have a submit button (uses block actions instead)")
 	}
 	if len(modal.Blocks.BlockSet) != 2 {
 		t.Errorf("expected 2 blocks, got %d", len(modal.Blocks.BlockSet))
@@ -31,12 +59,16 @@ func TestCreateRepoChooserModalStructure(t *testing.T) {
 func TestCreateRepoChooserModalUsesExternalSelect(t *testing.T) {
 	modal := createRepoChooserModal()
 
-	inputBlock, ok := modal.Blocks.BlockSet[1].(*slack.InputBlock)
+	actionBlock, ok := modal.Blocks.BlockSet[1].(*slack.ActionBlock)
 	if !ok {
-		t.Fatal("expected second block to be an InputBlock")
+		t.Fatal("expected second block to be an ActionBlock")
 	}
 
-	selectEl, ok := inputBlock.Element.(*slack.SelectBlockElement)
+	if len(actionBlock.Elements.ElementSet) != 1 {
+		t.Fatalf("expected 1 element in action block, got %d", len(actionBlock.Elements.ElementSet))
+	}
+
+	selectEl, ok := actionBlock.Elements.ElementSet[0].(*slack.SelectBlockElement)
 	if !ok {
 		t.Fatal("expected element to be SelectBlockElement")
 	}
@@ -241,16 +273,9 @@ func TestHandleSlashCommandIgnoresNonPR(t *testing.T) {
 	// a non-/pr command should return without calling OpenView.
 	for _, cmd := range commands {
 		payload, _ := json.Marshal(SlackCommand{Command: cmd, TriggerID: "tid"})
-		// If handleSlashCommand tries to open a view for non-/pr commands it would
-		// panic with a nil client. Success = no panic.
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("command %q caused a panic: %v", cmd, r)
-				}
-			}()
+		assertNoPanic(t, fmt.Sprintf("command %q", cmd), func() {
 			handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
-		}()
+		})
 	}
 }
 
@@ -259,36 +284,18 @@ func TestHandleSlashCommandWithRepoArgSkipsRepoChooser(t *testing.T) {
 	// the loading modal (not the repo chooser). With a nil Slack client this panics,
 	// so we confirm it does NOT return silently before touching the client.
 	payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: "myrepo", TriggerID: "tid"})
-	panicked := false
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				panicked = true
-			}
-		}()
+	assertPanics(t, "repo arg provided", func() {
 		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
-	}()
-	if !panicked {
-		t.Error("expected a panic when Slack client is nil and repo arg is provided (loading modal path)")
-	}
+	})
 }
 
 func TestHandleSlashCommandWithoutRepoArgOpensRepoChooser(t *testing.T) {
 	// When no repo argument is provided, handleSlashCommand should attempt to open
 	// the repo chooser modal. With a nil Slack client this panics.
 	payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: "", TriggerID: "tid"})
-	panicked := false
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				panicked = true
-			}
-		}()
+	assertPanics(t, "no repo arg", func() {
 		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
-	}()
-	if !panicked {
-		t.Error("expected a panic when Slack client is nil and no repo arg is provided (repo chooser path)")
-	}
+	})
 }
 
 func TestHandleSlashCommandInvalidRepoArgIsIgnored(t *testing.T) {
@@ -297,32 +304,18 @@ func TestHandleSlashCommandInvalidRepoArgIsIgnored(t *testing.T) {
 	invalidArgs := []string{"org/repo", "repo; rm -rf /", "repo name", "../etc"}
 	for _, arg := range invalidArgs {
 		payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: arg, TriggerID: "tid"})
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("invalid repo arg %q caused a panic: %v", arg, r)
-				}
-			}()
+		assertNoPanic(t, fmt.Sprintf("invalid repo arg %q", arg), func() {
 			handleSlashCommand(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
-		}()
+		})
 	}
 }
 
 func TestHandleSlashCommandWhitespaceOnlyTextOpensRepoChooser(t *testing.T) {
 	// Whitespace-only text should be treated as no repo argument.
 	payload, _ := json.Marshal(SlackCommand{Command: "/pr", Text: "   ", TriggerID: "tid"})
-	panicked := false
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				panicked = true
-			}
-		}()
+	assertPanics(t, "whitespace-only text", func() {
 		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
-	}()
-	if !panicked {
-		t.Error("expected a panic when Slack client is nil and text is whitespace only (repo chooser path)")
-	}
+	})
 }
 
 // ---- SlackLinerMessage serialisation test ----
@@ -416,6 +409,115 @@ func TestPostPRToSlackMetadataIncludesBranch(t *testing.T) {
 	}
 }
 
+// ---- BlockActionPayload parsing tests ----
+
+func TestBlockActionPayloadParsing(t *testing.T) {
+	raw := `{
+		"type": "block_actions",
+		"trigger_id": "tid123",
+		"user": {"id": "U001", "username": "alice"},
+		"view": {"id": "V001"},
+		"actions": [{
+			"action_id": "SlashVibeIssue",
+			"block_id": "repo_block",
+			"type": "external_select",
+			"selected_option": {"value": "my-repo"}
+		}]
+	}`
+
+	var p BlockActionPayload
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	if p.TriggerID != "tid123" {
+		t.Errorf("expected trigger_id 'tid123', got %q", p.TriggerID)
+	}
+	if p.User.Username != "alice" {
+		t.Errorf("expected username 'alice', got %q", p.User.Username)
+	}
+	if len(p.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(p.Actions))
+	}
+	if p.Actions[0].ActionID != "SlashVibeIssue" {
+		t.Errorf("expected action_id 'SlashVibeIssue', got %q", p.Actions[0].ActionID)
+	}
+	if p.Actions[0].SelectedOption.Value != "my-repo" {
+		t.Errorf("expected selected value 'my-repo', got %q", p.Actions[0].SelectedOption.Value)
+	}
+}
+
+func TestHandleBlockActionIgnoresUnknownActionID(t *testing.T) {
+	// A block action with a different action_id should be silently ignored.
+	payload, _ := json.Marshal(BlockActionPayload{
+		Type:      "block_actions",
+		TriggerID: "tid",
+		Actions: []struct {
+			ActionID       string `json:"action_id"`
+			BlockID        string `json:"block_id"`
+			Type           string `json:"type"`
+			SelectedOption struct {
+				Value string `json:"value"`
+			} `json:"selected_option"`
+		}{{ActionID: "other_action", SelectedOption: struct {
+			Value string `json:"value"`
+		}{Value: "some-value"}}},
+	})
+
+	assertNoPanic(t, "unknown action_id", func() {
+		handleBlockAction(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+	})
+}
+
+func TestHandleBlockActionEmptyValueIsIgnored(t *testing.T) {
+	// A repo selection action with empty value should be silently ignored.
+	payload, _ := json.Marshal(BlockActionPayload{
+		Type:      "block_actions",
+		TriggerID: "tid",
+		Actions: []struct {
+			ActionID       string `json:"action_id"`
+			BlockID        string `json:"block_id"`
+			Type           string `json:"type"`
+			SelectedOption struct {
+				Value string `json:"value"`
+			} `json:"selected_option"`
+		}{{ActionID: slashVibeIssueActionID, SelectedOption: struct {
+			Value string `json:"value"`
+		}{Value: ""}}},
+	})
+
+	assertNoPanic(t, "empty repo value", func() {
+		handleBlockAction(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+	})
+}
+
+func TestHandleBlockActionWithRepoOpensLoadingModal(t *testing.T) {
+	// A valid block action should attempt to open the loading modal.
+	// With a nil Slack client this panics, confirming the loading modal path is reached.
+	payload, _ := json.Marshal(BlockActionPayload{
+		Type:      "block_actions",
+		TriggerID: "tid",
+		User: struct {
+			ID       string `json:"id"`
+			Username string `json:"username"`
+		}{Username: "alice"},
+		Actions: []struct {
+			ActionID       string `json:"action_id"`
+			BlockID        string `json:"block_id"`
+			Type           string `json:"type"`
+			SelectedOption struct {
+				Value string `json:"value"`
+			} `json:"selected_option"`
+		}{{ActionID: slashVibeIssueActionID, SelectedOption: struct {
+			Value string `json:"value"`
+		}{Value: "my-repo"}}},
+	})
+
+	assertPanics(t, "valid repo block action", func() {
+		handleBlockAction(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+	})
+}
+
 // ---- Config tests ----
 
 func TestGetEnvDefault(t *testing.T) {
@@ -441,6 +543,9 @@ func TestLoadConfigFromBytesDefaults(t *testing.T) {
 	if config.RedisPoppitOutputChannel != "poppit:command-output" {
 		t.Errorf("unexpected RedisPoppitOutputChannel: %q", config.RedisPoppitOutputChannel)
 	}
+	if config.RedisBlockActionsChannel != "slack-relay-block-actions" {
+		t.Errorf("unexpected RedisBlockActionsChannel: %q", config.RedisBlockActionsChannel)
+	}
 	if config.LogLevel != "INFO" {
 		t.Errorf("unexpected LogLevel: %q", config.LogLevel)
 	}
@@ -453,6 +558,7 @@ redis:
 channels:
   slash_commands: my-commands
   view_submissions: my-view-submissions
+  block_actions: my-block-actions
   poppit_output: my-poppit-output
 lists:
   poppit_commands: my-poppit-commands
@@ -481,6 +587,9 @@ logging:
 	}
 	if config.RedisChannel != "my-commands" {
 		t.Errorf("unexpected RedisChannel: %q", config.RedisChannel)
+	}
+	if config.RedisBlockActionsChannel != "my-block-actions" {
+		t.Errorf("unexpected RedisBlockActionsChannel: %q", config.RedisBlockActionsChannel)
 	}
 	if config.SlackChannelID != "CMYCHANNEL" {
 		t.Errorf("unexpected SlackChannelID: %q", config.SlackChannelID)
