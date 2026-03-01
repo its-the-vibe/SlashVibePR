@@ -7,8 +7,11 @@ A Slack Slash Command service that lets your team browse and share GitHub Pull R
 SlashVibePR sits on a Redis pub/sub bus alongside two companion services:
 
 - **[slack-relay](https://github.com/its-the-vibe/slack-relay)** — forwards raw Slack events (slash commands, modal submissions, block actions) onto Redis channels.
-- **[Poppit](https://github.com/its-the-vibe/poppit)** — executes `gh pr list` and publishes the output back to Redis.
-- **[SlackLiner](https://github.com/its-the-vibe/slackliner)** — delivers formatted messages to Slack channels.
+- **[Poppit](https://github.com/its-the-vibe/Poppit)** — executes `gh pr list` and publishes the output back to Redis.
+- **[SlackLiner](https://github.com/its-the-vibe/SlackLiner)** — delivers formatted messages to Slack channels.
+- **[OctoSlack](https://github.com/its-the-vibe/OctoSlack)** — for SlackOps with the generated messages.
+
+
 
 ```
 Slack ──► slack-relay ──► Redis ──► SlashVibePR ──► Redis ──► Poppit
@@ -42,7 +45,7 @@ After selecting a PR from the list, SlashVibePR posts a formatted summary to the
 
 ### Prerequisites
 
-- Go 1.22+ (for local development)
+- Go 1.26+ (for local development)
 - Docker & Docker Compose (for containerised deployment)
 - A Redis instance accessible by all services
 - A Slack App with a Bot Token (`xoxb-…`) and the `/pr` slash command configured
@@ -161,22 +164,3 @@ go build -o slashvibeprs .
 ```bash
 docker build -t slashvibeprs:latest .
 ```
-
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. **Fork** the repository and create a feature branch from `main`:
-   ```bash
-   git checkout -b feat/your-feature-name
-   ```
-2. **Make your changes** and ensure the tests pass (`go test ./...`).
-3. **Commit** using clear, descriptive commit messages.
-4. **Open a Pull Request** against `main` and describe what your change does and why.
-
-Please keep PRs focused and minimal. If you are proposing a significant change, open an issue first to discuss the approach.
-
-### Related Issues
-
-- [#9 — Skip repo chooser modal](https://github.com/its-the-vibe/SlashVibePR/issues/9)
-- [#11 — Refactor repo selection modal](https://github.com/its-the-vibe/SlashVibePR/issues/11)
