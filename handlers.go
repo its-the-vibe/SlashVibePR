@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/slack-go/slack"
@@ -16,11 +15,9 @@ import (
 var validRepoName = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 const (
-	poppitPRListType   = "slash-vibe-pr-list"
-	prSessionKeyTTL    = time.Hour
-	prSessionKeyPrefix = "slashvibeprs:"
-	defaultPRLimit     = 50
-	repoBlockID        = "repo_block"
+	poppitPRListType = "slash-vibe-pr-list"
+	defaultPRLimit   = 50
+	repoBlockID      = "repo_block"
 )
 
 // subscribeToSlashCommands subscribes to the Redis slash-commands channel and
@@ -244,26 +241,14 @@ func handlePRSelection(ctx context.Context, rdb *redis.Client, submission ViewSu
 		return
 	}
 
-	// Retrieve PR list from Redis using the view ID as the session key.
-	sessionKey := prSessionKeyPrefix + submission.View.ID
-	prJSON, err := rdb.Get(ctx, sessionKey).Result()
-	if err != nil {
-		Error("Error fetching PR session data from Redis (key=%s): %v", sessionKey, err)
-		return
-	}
-
-	var prs []PRItem
-	if err := json.Unmarshal([]byte(prJSON), &prs); err != nil {
-		Error("Error parsing PR session data: %v", err)
-		return
-	}
-
-	// Parse private_metadata to get the repo name.
+	// Parse private_metadata to get the repo name and PR list.
 	var meta PRModalPrivateMetadata
 	if err := json.Unmarshal([]byte(submission.View.PrivateMetadata), &meta); err != nil {
 		Error("Error parsing private metadata: %v", err)
 		return
 	}
+
+	prs := meta.PRs
 
 	// Find the selected PR by number.
 	var selectedPR *PRItem
@@ -284,11 +269,6 @@ func handlePRSelection(ctx context.Context, rdb *redis.Client, submission ViewSu
 	if err := postPRToSlack(ctx, rdb, selectedPR, meta.Repo, submission.User.Username, config); err != nil {
 		Error("Error posting PR to Slack: %v", err)
 		return
-	}
-
-	// Clean up the session key.
-	if err := rdb.Del(ctx, sessionKey).Err(); err != nil {
-		Warn("Failed to delete PR session key %s: %v", sessionKey, err)
 	}
 
 	Info("PR #%d from %s posted to Slack channel", selectedPR.Number, meta.Repo)
@@ -410,21 +390,8 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 
 	Info("Found %d open PRs for repo %s (user: %s)", len(prs), repo, username)
 
-	// Store the PR list in Redis so handlePRSelection can retrieve it.
-	prJSON, err := json.Marshal(prs)
-	if err != nil {
-		Error("Error marshaling PR list for Redis: %v", err)
-		return
-	}
-
-	sessionKey := prSessionKeyPrefix + viewID
-	if err := rdb.Set(ctx, sessionKey, prJSON, prSessionKeyTTL).Err(); err != nil {
-		Error("Error storing PR session in Redis (key=%s): %v", sessionKey, err)
-		return
-	}
-
-	// Build private_metadata for the PR chooser modal.
-	meta := PRModalPrivateMetadata{Repo: repo}
+	// Build private_metadata for the PR chooser modal, including the PR list.
+	meta := PRModalPrivateMetadata{Repo: repo, PRs: prs}
 	metaJSON, err := json.Marshal(meta)
 	if err != nil {
 		Error("Error marshaling PR modal metadata: %v", err)

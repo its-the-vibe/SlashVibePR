@@ -58,9 +58,9 @@ type SlackLinerMessage struct {
 
 // PRItem represents a single pull request returned by `gh pr list --json`.
 type PRItem struct {
-	Number      int    `json:"number"`
-	Title       string `json:"title"`
-	Author      struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Author struct {
 		Login string `json:"login"`
 	} `json:"author"`
 	URL         string `json:"url"`
@@ -69,7 +69,8 @@ type PRItem struct {
 
 // PRModalPrivateMetadata is stored in the PR-chooser modal's private_metadata field.
 type PRModalPrivateMetadata struct {
-	Repo string `json:"repo"`
+	Repo string   `json:"repo"`
+	PRs  []PRItem `json:"prs"`
 }
 
 // BlockActionPayload represents a Slack block_actions interaction payload.
