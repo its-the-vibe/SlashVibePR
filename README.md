@@ -1,5 +1,7 @@
 # SlashVibePR
 
+[![CI](https://github.com/its-the-vibe/SlashVibePR/actions/workflows/ci.yaml/badge.svg)](https://github.com/its-the-vibe/SlashVibePR/actions/workflows/ci.yaml)
+
 A Slack Slash Command service that lets your team browse and share GitHub Pull Requests directly from Slack.
 
 ## How It Works
@@ -147,16 +149,36 @@ CONFIG_FILE=/path/to/config.yaml go run .
 
 ## Development
 
+A `Makefile` is provided to simplify common development tasks.
+
+| Target | Description |
+|---|---|
+| `make build` | Compile the binary (`slashvibeprs`) |
+| `make test` | Run all unit tests |
+| `make lint` | Run `go vet` and check `gofmt` formatting |
+| `make fmt` | Auto-format source files with `gofmt` |
+| `make clean` | Remove the compiled binary |
+
 ### Run tests
 
 ```bash
+make test
+# or
 go test ./...
 ```
 
 ### Build the binary
 
 ```bash
+make build
+# or
 go build -o slashvibeprs .
+```
+
+### Lint the code
+
+```bash
+make lint
 ```
 
 ### Build the Docker image

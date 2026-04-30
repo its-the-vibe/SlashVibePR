@@ -633,6 +633,112 @@ func TestLoadConfigFromBytesInvalidYAML(t *testing.T) {
 	}
 }
 
+// ---- Logger tests ----
+
+func TestSetLogLevelCaseInsensitive(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected LogLevel
+	}{
+		{"DEBUG", DEBUG},
+		{"debug", DEBUG},
+		{"Info", INFO},
+		{"INFO", INFO},
+		{"WARN", WARN},
+		{"warn", WARN},
+		{"ERROR", ERROR},
+		{"error", ERROR},
+	}
+	for _, tc := range cases {
+		SetLogLevel(tc.input)
+		if currentLogLevel != tc.expected {
+			t.Errorf("SetLogLevel(%q): expected %v, got %v", tc.input, tc.expected, currentLogLevel)
+		}
+	}
+	// Reset to INFO after the test.
+	SetLogLevel("INFO")
+}
+
+func TestSetLogLevelUnknownDefaultsToInfo(t *testing.T) {
+	SetLogLevel("VERBOSE")
+	if currentLogLevel != INFO {
+		t.Errorf("expected INFO for unknown level, got %v", currentLogLevel)
+	}
+}
+
+func TestLogFunctionsDoNotPanic(t *testing.T) {
+	SetLogLevel("DEBUG")
+	assertNoPanic(t, "Debug", func() { Debug("test %d", 1) })
+	assertNoPanic(t, "Info", func() { Info("test %d", 1) })
+	assertNoPanic(t, "Warn", func() { Warn("test %d", 1) })
+	assertNoPanic(t, "Error", func() { Error("test %d", 1) })
+	SetLogLevel("INFO")
+}
+
+// ---- handleViewSubmission tests ----
+
+func TestHandleViewSubmissionUnknownCallbackID(t *testing.T) {
+	// A view submission with an unknown callback_id should be silently ignored.
+	submission := ViewSubmission{
+		Type: "view_submission",
+		View: struct {
+			ID              string `json:"id"`
+			Hash            string `json:"hash"`
+			CallbackID      string `json:"callback_id"`
+			PrivateMetadata string `json:"private_metadata"`
+			State           struct {
+				Values map[string]map[string]interface{} `json:"values"`
+			} `json:"state"`
+		}{
+			CallbackID: "unknown_callback",
+		},
+	}
+	payload, _ := json.Marshal(submission)
+	assertNoPanic(t, "unknown callback_id", func() {
+		handleViewSubmission(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+func TestHandleViewSubmissionInvalidJSON(t *testing.T) {
+	// Invalid JSON should log an error but not panic.
+	assertNoPanic(t, "invalid JSON", func() {
+		handleViewSubmission(context.Background(), nil, nil, "{invalid}", Config{})
+	})
+}
+
+// ---- handlePoppitOutput tests ----
+
+func TestHandlePoppitOutputWrongType(t *testing.T) {
+	// A Poppit output with a different type should be silently ignored.
+	output := PoppitOutput{
+		Type:   "some-other-type",
+		Output: "[]",
+	}
+	payload, _ := json.Marshal(output)
+	assertNoPanic(t, "wrong poppit type", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+func TestHandlePoppitOutputInvalidJSON(t *testing.T) {
+	// Invalid JSON should log an error but not panic.
+	assertNoPanic(t, "invalid JSON", func() {
+		handlePoppitOutput(context.Background(), nil, nil, "{invalid}", Config{})
+	})
+}
+
+func TestHandlePoppitOutputNoMetadata(t *testing.T) {
+	// A slash-vibe-pr-list output with no metadata should warn and return without panic.
+	output := PoppitOutput{
+		Type:   poppitPRListType,
+		Output: "[]",
+	}
+	payload, _ := json.Marshal(output)
+	assertNoPanic(t, "no metadata", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
 // ---- PRModalPrivateMetadata serialisation ----
 
 func TestPRModalPrivateMetadataRoundtrip(t *testing.T) {
