@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -737,6 +738,97 @@ func TestHandlePoppitOutputNoMetadata(t *testing.T) {
 	assertNoPanic(t, "no metadata", func() {
 		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
 	})
+}
+
+func TestHandlePoppitOutputSinglePRShortCircuitsModal(t *testing.T) {
+	// When exactly one PR is returned, handlePoppitOutput should attempt to push
+	// to the SlackLiner Redis list (postPRToSlack). With a nil Redis client this
+	// panics, confirming the auto-post path is reached instead of the chooser modal.
+	pr := PRItem{Number: 7, Title: "Only PR"}
+	pr.Author.Login = "alice"
+	pr.URL = "https://github.com/org/repo/pull/7"
+	prJSON, _ := json.Marshal([]PRItem{pr})
+
+	output := PoppitOutput{
+		Type:   poppitPRListType,
+		Output: string(prJSON),
+		Metadata: map[string]interface{}{
+			"view_id":  "V123",
+			"repo":     "org/repo",
+			"username": "alice",
+		},
+	}
+	payload, _ := json.Marshal(output)
+
+	assertPanics(t, "single PR auto-post path", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+func TestHandlePoppitOutputMultiplePRsShowsChooser(t *testing.T) {
+	// When more than one PR is returned, handlePoppitOutput should attempt to
+	// update the Slack modal (chooser path). With a nil Slack client this panics,
+	// confirming the chooser path is reached.
+	prs := []PRItem{
+		{Number: 1, Title: "First PR"},
+		{Number: 2, Title: "Second PR"},
+	}
+	prJSON, _ := json.Marshal(prs)
+
+	output := PoppitOutput{
+		Type:   poppitPRListType,
+		Output: string(prJSON),
+		Metadata: map[string]interface{}{
+			"view_id":  "V456",
+			"repo":     "org/repo",
+			"username": "bob",
+		},
+	}
+	payload, _ := json.Marshal(output)
+
+	assertPanics(t, "multiple PRs chooser path", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+// ---- createAutoPostedModal tests ----
+
+func TestCreateAutoPostedModalStructure(t *testing.T) {
+	pr := &PRItem{Number: 42, Title: "My feature"}
+	modal := createAutoPostedModal(pr, "org/repo")
+
+	if modal.Type != slack.VTModal {
+		t.Errorf("expected modal type 'modal', got %q", modal.Type)
+	}
+	if modal.Submit != nil {
+		t.Error("auto-posted modal should not have a submit button")
+	}
+	if modal.Close == nil || modal.Close.Text != "Close" {
+		t.Errorf("expected close button labelled 'Close'")
+	}
+	if len(modal.Blocks.BlockSet) != 1 {
+		t.Errorf("expected 1 block, got %d", len(modal.Blocks.BlockSet))
+	}
+}
+
+func TestCreateAutoPostedModalContent(t *testing.T) {
+	pr := &PRItem{Number: 42, Title: "My feature"}
+	modal := createAutoPostedModal(pr, "org/repo")
+
+	section, ok := modal.Blocks.BlockSet[0].(*slack.SectionBlock)
+	if !ok {
+		t.Fatal("expected first block to be a SectionBlock")
+	}
+	if section.Text == nil {
+		t.Fatal("expected section text to be non-nil")
+	}
+	text := section.Text.Text
+	if !strings.Contains(text, "42") {
+		t.Errorf("expected PR number 42 in modal text, got %q", text)
+	}
+	if !strings.Contains(text, "org/repo") {
+		t.Errorf("expected repo name in modal text, got %q", text)
+	}
 }
 
 // ---- PRModalPrivateMetadata serialisation ----
