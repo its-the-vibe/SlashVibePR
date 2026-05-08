@@ -390,6 +390,22 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 
 	Info("Found %d open PRs for repo %s (user: %s)", len(prs), repo, username)
 
+	// Short-circuit: when exactly one PR is available, post it directly without
+	// showing the chooser modal.
+	if len(prs) == 1 {
+		Info("Single PR found for repo %s, auto-posting PR #%d (user: %s)", repo, prs[0].Number, username)
+		if err := postPRToSlack(ctx, rdb, &prs[0], repo, username, config); err != nil {
+			Error("Error auto-posting single PR to Slack: %v", err)
+			updateModalWithErrorByID(slackClient, viewID, "Failed to post the pull request. Please try again.")
+			return
+		}
+		if _, err := slackClient.UpdateView(createAutoPostedModal(&prs[0], repo), "", "", viewID); err != nil {
+			Error("Error updating modal after auto-posting PR: %v", err)
+		}
+		Debug("Single PR #%d auto-posted and modal updated for view_id: %s", prs[0].Number, viewID)
+		return
+	}
+
 	// Build private_metadata for the PR chooser modal, including the PR list.
 	meta := PRModalPrivateMetadata{Repo: repo, PRs: prs}
 	metaJSON, err := json.Marshal(meta)

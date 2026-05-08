@@ -145,6 +145,33 @@ func createPRChooserModal(prs []PRItem, repo, privateMetadata string) slack.Moda
 	}
 }
 
+// createAutoPostedModal returns a modal confirming that a single PR was
+// automatically posted to the channel without requiring the user to choose.
+func createAutoPostedModal(pr *PRItem, repo string) slack.ModalViewRequest {
+	return slack.ModalViewRequest{
+		Type: slack.VTModal,
+		Title: &slack.TextBlockObject{
+			Type: slack.PlainTextType,
+			Text: "PR Posted",
+		},
+		Close: &slack.TextBlockObject{
+			Type: slack.PlainTextType,
+			Text: "Close",
+		},
+		Blocks: slack.Blocks{
+			BlockSet: []slack.Block{
+				&slack.SectionBlock{
+					Type: slack.MBTSection,
+					Text: &slack.TextBlockObject{
+						Type: slack.MarkdownType,
+						Text: fmt.Sprintf(":white_check_mark: Only one open pull request was found for `%s`.\n\n*PR #%d: %s* has been posted to the channel.", repo, pr.Number, pr.Title),
+					},
+				},
+			},
+		},
+	}
+}
+
 // createErrorModal returns a modal displaying an error message.
 func createErrorModal(message string) slack.ModalViewRequest {
 	return slack.ModalViewRequest{
