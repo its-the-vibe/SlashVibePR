@@ -26,12 +26,14 @@ Slack ──► slack-relay ──► Redis ──► SlashVibePR ──► Redi
 
 ## Usage
 
-In any Slack channel, type the `/pr` command:
+In any Slack channel, type the `/pr` or `/import-issue` command:
 
 | Command | Behaviour |
 |---|---|
 | `/pr` | Opens a repository chooser modal. Select a repo from the dropdown to see its open PRs. |
 | `/pr <repo-name>` | Skips the repo chooser and loads open PRs for `<org>/<repo-name>` directly. |
+| `/import-issue` | Opens a repository chooser modal. Select a repo from the dropdown to see its open issues. |
+| `/import-issue <repo-name>` | Skips the repo chooser and loads open issues for `<org>/<repo-name>` directly. |
 
 **Examples:**
 
@@ -39,9 +41,13 @@ In any Slack channel, type the `/pr` command:
 /pr
 /pr my-service
 /pr frontend-app
+
+/import-issue
+/import-issue my-service
+/import-issue frontend-app
 ```
 
-After selecting a PR from the list, SlashVibePR posts a formatted summary to the configured Slack channel.
+After selecting a PR or issue from the list, SlashVibePR posts a formatted summary to the configured Slack channel.
 
 ## Installation & Setup
 
@@ -50,7 +56,7 @@ After selecting a PR from the list, SlashVibePR posts a formatted summary to the
 - Go 1.26+ (for local development)
 - Docker & Docker Compose (for containerised deployment)
 - A Redis instance accessible by all services
-- A Slack App with a Bot Token (`xoxb-…`) and the `/pr` slash command configured
+- A Slack App with a Bot Token (`xoxb-…`) and the `/pr` and `/import-issue` slash commands configured
 - The `gh` CLI available to Poppit (used to query GitHub PRs)
 
 ### 1. Clone the repository
@@ -87,6 +93,7 @@ lists:
 
 slack:
   channel_id: C0123456789    # Slack channel ID where PRs are posted
+  issue_channel_id: ""       # Slack channel ID where issues are posted (falls back to channel_id)
 
 github:
   org: my-org                # GitHub organisation name
@@ -144,6 +151,7 @@ CONFIG_FILE=/path/to/config.yaml go run .
 | `lists.poppit_commands` | `poppit:commands` | Redis list for outgoing Poppit tasks |
 | `lists.slackliner_messages` | `slack_messages` | Redis list for outgoing SlackLiner messages |
 | `slack.channel_id` | _(required)_ | Slack channel ID where PR summaries are posted |
+| `slack.issue_channel_id` | _(empty — falls back to `slack.channel_id`)_ | Slack channel ID where issue summaries are posted |
 | `github.org` | _(empty)_ | GitHub organisation prepended to the selected repository name |
 | `logging.level` | `INFO` | Log verbosity: `DEBUG`, `INFO`, `WARN`, or `ERROR` |
 
