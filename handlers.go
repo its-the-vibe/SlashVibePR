@@ -330,8 +330,9 @@ func sendIssueListCommand(ctx context.Context, rdb *redis.Client, repo, viewID, 
 	return nil
 }
 
-// 1. Looks up PR details stored in Redis by the view ID.
-// 2. Posts the selected PR to the configured Slack channel via SlackLiner.
+// handlePRSelection processes the PR-chooser modal submission:
+//  1. Looks up PR details stored in Redis by the view ID.
+//  2. Posts the selected PR to the configured Slack channel via SlackLiner.
 func handlePRSelection(ctx context.Context, rdb *redis.Client, submission ViewSubmission, config Config) {
 	prNumber := extractTextValue(submission.View.State.Values, "pr_block", "pr_select")
 	if prNumber == "" {
@@ -541,6 +542,7 @@ func postIssueToSlack(ctx context.Context, rdb *redis.Client, issue *IssueItem, 
 	return nil
 }
 
+// subscribeToPoppitOutput subscribes to the Poppit command-output channel and
 // handles PR and issue list results.
 func subscribeToPoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, config Config) {
 	pubsub := rdb.Subscribe(ctx, config.RedisPoppitOutputChannel)
