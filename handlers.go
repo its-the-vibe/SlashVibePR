@@ -219,7 +219,7 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 
 	// Only handle repo selection actions from the repo chooser modals.
 	switch first.ActionID {
-	case slashVibePRActionID, slashVibeImportIssueActionID:
+	case slashVibeIssueActionID, slashVibeImportIssueActionID:
 		// handled below
 	default:
 		return

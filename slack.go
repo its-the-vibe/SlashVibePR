@@ -11,8 +11,10 @@ const (
 	prModalCallbackID              = "select_pr_modal"
 	importIssueRepoModalCallbackID = "select_issue_repo_modal"
 	issueModalCallbackID           = "select_issue_modal"
-	slashVibePRActionID            = "SlashVibePR"
-	slashVibeImportIssueActionID   = "SlashVibeImportIssue"
+
+	// NOTE: this needs to match octocatalog
+	slashVibeIssueActionID       = "SlashVibeIssue"
+	slashVibeImportIssueActionID = "SlashVibeImportIssue"
 )
 
 // createRepoChooserModal returns a modal for the user to select a repository
@@ -45,7 +47,7 @@ func createRepoChooserModal() slack.ModalViewRequest {
 					repoBlockID,
 					&slack.SelectBlockElement{
 						Type:     slack.OptTypeExternal,
-						ActionID: slashVibePRActionID,
+						ActionID: slashVibeIssueActionID,
 						Placeholder: &slack.TextBlockObject{
 							Type: slack.PlainTextType,
 							Text: "Search for a repo...",
