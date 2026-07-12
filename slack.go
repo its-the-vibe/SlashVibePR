@@ -11,7 +11,7 @@ const (
 	prModalCallbackID              = "select_pr_modal"
 	importIssueRepoModalCallbackID = "select_issue_repo_modal"
 	issueModalCallbackID           = "select_issue_modal"
-	slashVibeIssueActionID         = "SlashVibeIssue"
+	slashVibePRActionID            = "SlashVibePR"
 	slashVibeImportIssueActionID   = "SlashVibeImportIssue"
 )
 
@@ -45,7 +45,7 @@ func createRepoChooserModal() slack.ModalViewRequest {
 					repoBlockID,
 					&slack.SelectBlockElement{
 						Type:     slack.OptTypeExternal,
-						ActionID: slashVibeIssueActionID,
+						ActionID: slashVibePRActionID,
 						Placeholder: &slack.TextBlockObject{
 							Type: slack.PlainTextType,
 							Text: "Search for a repo...",

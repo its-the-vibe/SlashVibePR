@@ -219,7 +219,7 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 
 	// Only handle repo selection actions from the repo chooser modals.
 	switch first.ActionID {
-	case slashVibeIssueActionID, slashVibeImportIssueActionID:
+	case slashVibePRActionID, slashVibeImportIssueActionID:
 		// handled below
 	default:
 		return
@@ -517,7 +517,7 @@ func postIssueToSlack(ctx context.Context, rdb *redis.Client, issue *IssueItem, 
 		Text:    messageText,
 		TTL:     86400,
 		Metadata: map[string]interface{}{
-			"event_type": "issue_posted",
+			"event_type": "issue_created",
 			"event_payload": map[string]interface{}{
 				"issue_number": issue.Number,
 				"repository":   repo,

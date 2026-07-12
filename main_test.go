@@ -76,8 +76,8 @@ func TestCreateRepoChooserModalUsesExternalSelect(t *testing.T) {
 	if selectEl.Type != slack.OptTypeExternal {
 		t.Errorf("expected external select type, got %q", selectEl.Type)
 	}
-	if selectEl.ActionID != slashVibeIssueActionID {
-		t.Errorf("expected action_id %q, got %q", slashVibeIssueActionID, selectEl.ActionID)
+	if selectEl.ActionID != slashVibePRActionID {
+		t.Errorf("expected action_id %q, got %q", slashVibePRActionID, selectEl.ActionID)
 	}
 }
 
@@ -482,7 +482,7 @@ func TestHandleBlockActionEmptyValueIsIgnored(t *testing.T) {
 			SelectedOption struct {
 				Value string `json:"value"`
 			} `json:"selected_option"`
-		}{{ActionID: slashVibeIssueActionID, SelectedOption: struct {
+		}{{ActionID: slashVibePRActionID, SelectedOption: struct {
 			Value string `json:"value"`
 		}{Value: ""}}},
 	})
@@ -509,7 +509,7 @@ func TestHandleBlockActionWithRepoOpensLoadingModal(t *testing.T) {
 			SelectedOption struct {
 				Value string `json:"value"`
 			} `json:"selected_option"`
-		}{{ActionID: slashVibeIssueActionID, BlockID: repoBlockID, SelectedOption: struct {
+		}{{ActionID: slashVibePRActionID, BlockID: repoBlockID, SelectedOption: struct {
 			Value string `json:"value"`
 		}{Value: "my-repo"}}},
 	})
