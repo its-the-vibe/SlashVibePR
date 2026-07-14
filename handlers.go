@@ -15,9 +15,12 @@ import (
 var validRepoName = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 
 const (
-	poppitPRListType = "slash-vibe-pr-list"
-	defaultPRLimit   = 50
-	repoBlockID      = "repo_block"
+	poppitPRListType    = "slash-vibe-pr-list"
+	poppitIssueListType = "slash-vibe-issue-list"
+	defaultPRLimit      = 50
+	defaultIssueLimit   = 50
+	prRepoBlockID       = "pr_repo_block"
+	issueRepoBlockID    = "issue_repo_block"
 )
 
 // subscribeToSlashCommands subscribes to the Redis slash-commands channel and
@@ -42,10 +45,11 @@ func subscribeToSlashCommands(ctx context.Context, rdb *redis.Client, slackClien
 	}
 }
 
-// handleSlashCommand processes a raw slash command payload. Only /pr is handled;
-// all other commands are silently ignored.
-// If a repo name is supplied as the command text (e.g. /pr myrepo), the repo
-// chooser modal is skipped and the PR chooser is loaded directly.
+// handleSlashCommand processes a raw slash command payload. Only /pr and
+// /import-issue are handled; all other commands are silently ignored.
+// If a repo name is supplied as the command text (e.g. /pr myrepo or
+// /import-issue myrepo), the repo chooser modal is skipped and the PR or
+// issue chooser is loaded directly.
 func handleSlashCommand(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, payload string, config Config) {
 	var cmd SlackCommand
 	if err := json.Unmarshal([]byte(payload), &cmd); err != nil {
@@ -53,10 +57,16 @@ func handleSlashCommand(ctx context.Context, rdb *redis.Client, slackClient *sla
 		return
 	}
 
-	if cmd.Command != "/pr" {
-		return
+	switch cmd.Command {
+	case "/pr":
+		handlePRCommand(ctx, rdb, slackClient, cmd, config)
+	case "/import-issue":
+		handleImportIssueCommand(ctx, rdb, slackClient, cmd, config)
 	}
+}
 
+// handlePRCommand handles the /pr slash command.
+func handlePRCommand(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, cmd SlackCommand, config Config) {
 	Info("Received /pr command from user %s", cmd.UserName)
 
 	repoArg := strings.TrimSpace(cmd.Text)
@@ -93,6 +103,44 @@ func handleSlashCommand(ctx context.Context, rdb *redis.Client, slackClient *sla
 	Debug("Repo chooser modal opened successfully with view_id: %s", viewResp.ID)
 }
 
+// handleImportIssueCommand handles the /import-issue slash command.
+func handleImportIssueCommand(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, cmd SlackCommand, config Config) {
+	Info("Received /import-issue command from user %s", cmd.UserName)
+
+	repoArg := strings.TrimSpace(cmd.Text)
+	if repoArg != "" {
+		if !validRepoName.MatchString(repoArg) {
+			Warn("Invalid repo argument from user %s: %q", cmd.UserName, repoArg)
+			return
+		}
+		// Repo name provided — skip the repo chooser and load issues directly.
+		repo := config.GitHubOrg + "/" + repoArg
+		Info("Repo argument provided, skipping repo chooser: %s", repo)
+
+		loadingModal := createIssueLoadingModal()
+		viewResp, err := slackClient.OpenView(cmd.TriggerID, loadingModal)
+		if err != nil {
+			Error("Error opening issue loading modal: %v", err)
+			return
+		}
+
+		if err := sendIssueListCommand(ctx, rdb, repo, viewResp.ID, cmd.UserName, config); err != nil {
+			Error("Error sending Poppit issue command for repo %s: %v", repo, err)
+		}
+		return
+	}
+
+	modal := createIssueRepoChooserModal()
+	var viewResp *slack.ViewResponse
+	var err error
+	if viewResp, err = slackClient.OpenView(cmd.TriggerID, modal); err != nil {
+		Error("Error opening issue repo chooser modal: %v", err)
+		return
+	}
+
+	Debug("Issue repo chooser modal opened successfully with view_id: %s", viewResp.ID)
+}
+
 // subscribeToViewSubmissions subscribes to the Redis view-submission channel and
 // routes each submission to the appropriate handler based on callback_id.
 func subscribeToViewSubmissions(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, config Config) {
@@ -123,8 +171,11 @@ func handleViewSubmission(ctx context.Context, rdb *redis.Client, slackClient *s
 		return
 	}
 
-	if submission.View.CallbackID == prModalCallbackID {
+	switch submission.View.CallbackID {
+	case prModalCallbackID:
 		handlePRSelection(ctx, rdb, submission, config)
+	case issueModalCallbackID:
+		handleIssueSelection(ctx, rdb, submission, config)
 	}
 }
 
@@ -152,7 +203,7 @@ func subscribeToBlockActions(ctx context.Context, rdb *redis.Client, slackClient
 
 // handleBlockAction processes a block_actions event from the repo-chooser modal.
 // When the user selects a repository from the external select, this opens a
-// loading modal using the fresh trigger_id and sends the Poppit PR list command.
+// loading modal using the fresh trigger_id and sends the Poppit PR or issue list command.
 func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, payload string, config Config) {
 	var action BlockActionPayload
 	if err := json.Unmarshal([]byte(payload), &action); err != nil {
@@ -165,15 +216,18 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 		return
 	}
 
-	// Only handle repo selection actions from the repo chooser modal.
 	first := action.Actions[0]
+
+	// Only handle repo selection actions from the repo chooser modals.
 	if first.ActionID != slashVibeIssueActionID {
 		return
 	}
 
-	if first.BlockID != repoBlockID {
+	if first.BlockID != prRepoBlockID && first.BlockID != issueRepoBlockID {
 		return
 	}
+
+	issueAction := first.BlockID == issueRepoBlockID
 
 	repoName := first.SelectedOption.Value
 	if repoName == "" {
@@ -184,7 +238,13 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 	repo := config.GitHubOrg + "/" + repoName
 	Info("User %s selected repo via block action: %s", action.User.Username, repo)
 
-	loadingModal := createLoadingModal()
+	var loadingModal slack.ModalViewRequest
+	if issueAction {
+		loadingModal = createIssueLoadingModal()
+	} else {
+		loadingModal = createLoadingModal()
+	}
+
 	viewResp, err := slackClient.PushView(action.TriggerID, loadingModal)
 	if err != nil {
 		Error("Error pushing loading modal from block action: %v", err)
@@ -193,8 +253,14 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 
 	Debug("Loading modal opened from block action with view_id: %s", viewResp.ID)
 
-	if err := sendPRListCommand(ctx, rdb, repo, viewResp.ID, action.User.Username, config); err != nil {
-		Error("Error sending Poppit command for repo %s: %v", repo, err)
+	if issueAction {
+		if err := sendIssueListCommand(ctx, rdb, repo, viewResp.ID, action.User.Username, config); err != nil {
+			Error("Error sending Poppit issue command for repo %s: %v", repo, err)
+		}
+	} else {
+		if err := sendPRListCommand(ctx, rdb, repo, viewResp.ID, action.User.Username, config); err != nil {
+			Error("Error sending Poppit command for repo %s: %v", repo, err)
+		}
 	}
 }
 
@@ -226,6 +292,39 @@ func sendPRListCommand(ctx context.Context, rdb *redis.Client, repo, viewID, use
 
 	if err := rdb.RPush(ctx, config.RedisPoppitList, payload).Err(); err != nil {
 		return fmt.Errorf("failed to push Poppit command to Redis: %w", err)
+	}
+
+	return nil
+}
+
+// sendIssueListCommand pushes a Poppit command to list open issues for the given repo.
+// The view_id is passed in metadata so handlePoppitOutput can update the correct modal.
+func sendIssueListCommand(ctx context.Context, rdb *redis.Client, repo, viewID, username string, config Config) error {
+	cmd := fmt.Sprintf(
+		"gh issue list --repo %s --json number,title,author,url,state,labels,assignees,createdAt --limit %d",
+		repo, defaultIssueLimit,
+	)
+
+	poppitCmd := PoppitCommand{
+		Repo:     repo,
+		Branch:   "",
+		Type:     poppitIssueListType,
+		Dir:      "/tmp",
+		Commands: []string{cmd},
+		Metadata: map[string]interface{}{
+			"view_id":  viewID,
+			"repo":     repo,
+			"username": username,
+		},
+	}
+
+	payload, err := json.Marshal(poppitCmd)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Poppit issue command: %w", err)
+	}
+
+	if err := rdb.RPush(ctx, config.RedisPoppitList, payload).Err(); err != nil {
+		return fmt.Errorf("failed to push Poppit issue command to Redis: %w", err)
 	}
 
 	return nil
@@ -320,8 +419,131 @@ func postPRToSlack(ctx context.Context, rdb *redis.Client, pr *PRItem, repo, pos
 	return nil
 }
 
+// handleIssueSelection processes the issue-chooser modal submission:
+//  1. Looks up issue details stored in the modal's private_metadata.
+//  2. Posts the selected issue to the configured Slack channel via SlackLiner.
+func handleIssueSelection(ctx context.Context, rdb *redis.Client, submission ViewSubmission, config Config) {
+	issueNumber := extractTextValue(submission.View.State.Values, "issue_block", "issue_select")
+	if issueNumber == "" {
+		Warn("Issue selection submission has empty issue number")
+		return
+	}
+
+	// Parse private_metadata to get the repo name and issue list.
+	var meta IssueModalPrivateMetadata
+	if err := json.Unmarshal([]byte(submission.View.PrivateMetadata), &meta); err != nil {
+		Error("Error parsing issue modal private metadata: %v", err)
+		return
+	}
+
+	issues := meta.Issues
+
+	// Find the selected issue by number.
+	var selectedIssue *IssueItem
+	for i := range issues {
+		if fmt.Sprintf("%d", issues[i].Number) == issueNumber {
+			selectedIssue = &issues[i]
+			break
+		}
+	}
+
+	if selectedIssue == nil {
+		Warn("Could not find issue #%s in session data", issueNumber)
+		return
+	}
+
+	Info("User %s selected issue #%d from %s", submission.User.Username, selectedIssue.Number, meta.Repo)
+
+	if err := postIssueToSlack(ctx, rdb, selectedIssue, meta.Repo, submission.User.Username, config); err != nil {
+		Error("Error posting issue to Slack: %v", err)
+		return
+	}
+
+	Info("Issue #%d from %s posted to Slack channel", selectedIssue.Number, meta.Repo)
+}
+
+// postIssueToSlack pushes a formatted issue message to the SlackLiner Redis list.
+func postIssueToSlack(ctx context.Context, rdb *redis.Client, issue *IssueItem, repo, postedBy string, config Config) error {
+	// Collect label names.
+	labelNames := make([]string, 0, len(issue.Labels))
+	for _, l := range issue.Labels {
+		labelNames = append(labelNames, l.Name)
+	}
+	labelsText := strings.Join(labelNames, ", ")
+	if labelsText == "" {
+		labelsText = "none"
+	}
+
+	// Collect assignee logins.
+	assigneeLogins := make([]string, 0, len(issue.Assignees))
+	for _, a := range issue.Assignees {
+		assigneeLogins = append(assigneeLogins, a.Login)
+	}
+	assigneesText := strings.Join(assigneeLogins, ", ")
+	if assigneesText == "" {
+		assigneesText = "unassigned"
+	}
+
+	messageText := fmt.Sprintf(
+		"🐛 *Issue shared by @%s*\n\n"+
+			"*Repository:* %s\n"+
+			"*Issue #%d:* %s\n"+
+			"*Author:* %s\n"+
+			"*State:* %s\n"+
+			"*Labels:* %s\n"+
+			"*Assignees:* %s\n"+
+			"*Created:* %s\n"+
+			"*Link:* <%s|View Issue>",
+		postedBy,
+		repo,
+		issue.Number,
+		issue.Title,
+		issue.Author.Login,
+		issue.State,
+		labelsText,
+		assigneesText,
+		issue.CreatedAt,
+		issue.URL,
+	)
+
+	// Use the dedicated issue channel if configured, otherwise fall back to the PR channel.
+	channelID := config.IssueChannelID
+	if channelID == "" {
+		channelID = config.SlackChannelID
+	}
+
+	msg := SlackLinerMessage{
+		Channel: channelID,
+		Text:    messageText,
+		TTL:     86400,
+		Metadata: map[string]interface{}{
+			"event_type": "issue_created",
+			"event_payload": map[string]interface{}{
+				"issue_number": issue.Number,
+				"repository":   repo,
+				"issue_url":    issue.URL,
+				"author":       issue.Author.Login,
+				"title":        issue.Title,
+				"state":        issue.State,
+				"posted_by":    postedBy,
+			},
+		},
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal SlackLiner issue message: %w", err)
+	}
+
+	if err := rdb.RPush(ctx, config.RedisSlackLinerList, payload).Err(); err != nil {
+		return fmt.Errorf("failed to push issue message to SlackLiner list: %w", err)
+	}
+
+	return nil
+}
+
 // subscribeToPoppitOutput subscribes to the Poppit command-output channel and
-// handles PR list results.
+// handles PR and issue list results.
 func subscribeToPoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, config Config) {
 	pubsub := rdb.Subscribe(ctx, config.RedisPoppitOutputChannel)
 	defer pubsub.Close()
@@ -342,10 +564,10 @@ func subscribeToPoppitOutput(ctx context.Context, rdb *redis.Client, slackClient
 	}
 }
 
-// handlePoppitOutput processes a Poppit output event for slash-vibe-pr-list:
-//  1. Parses the PR list from stdout.
-//  2. Stores the PRs in Redis keyed by the view ID.
-//  3. Updates the loading modal to display the PR chooser.
+// handlePoppitOutput processes a Poppit output event for slash-vibe-pr-list
+// and slash-vibe-issue-list:
+//  1. Parses the PR or issue list from stdout.
+//  2. Updates the loading modal to display the chooser.
 func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, payload string, config Config) {
 	var output PoppitOutput
 	if err := json.Unmarshal([]byte(payload), &output); err != nil {
@@ -353,10 +575,19 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 		return
 	}
 
-	if output.Type != poppitPRListType {
-		return
+	switch output.Type {
+	case poppitPRListType:
+		handlePoppitPRListOutput(ctx, rdb, slackClient, output, config)
+	case poppitIssueListType:
+		handlePoppitIssueListOutput(ctx, rdb, slackClient, output, config)
 	}
+}
 
+// handlePoppitPRListOutput handles a Poppit PR list output event:
+//  1. Parses the PR list from stdout.
+//  2. Stores the PRs in Redis keyed by the view ID.
+//  3. Updates the loading modal to display the PR chooser.
+func handlePoppitPRListOutput(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, output PoppitOutput, config Config) {
 	Debug("Received Poppit PR list output")
 
 	metadata := output.Metadata
@@ -423,6 +654,78 @@ func handlePoppitOutput(ctx context.Context, rdb *redis.Client, slackClient *sla
 	}
 
 	Debug("PR chooser modal updated successfully for view_id: %s", viewID)
+}
+
+// handlePoppitIssueListOutput handles a Poppit issue list output event:
+//  1. Parses the issue list from stdout.
+//  2. Updates the loading modal to display the issue chooser.
+func handlePoppitIssueListOutput(ctx context.Context, rdb *redis.Client, slackClient *slack.Client, output PoppitOutput, config Config) {
+	Debug("Received Poppit issue list output")
+
+	metadata := output.Metadata
+	if metadata == nil {
+		Warn("No metadata in Poppit issue list output")
+		return
+	}
+
+	viewID, _ := metadata["view_id"].(string)
+	repo, _ := metadata["repo"].(string)
+	username, _ := metadata["username"].(string)
+
+	if viewID == "" || repo == "" {
+		Warn("Missing view_id or repo in Poppit issue output metadata")
+		return
+	}
+
+	// Parse the issue list from Poppit stdout.
+	var issues []IssueItem
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output.Output)), &issues); err != nil {
+		Error("Error parsing issue list JSON for repo %s: %v", repo, err)
+		updateModalWithErrorByID(slackClient, viewID, "Failed to parse the issue list. Please try again.")
+		return
+	}
+
+	if len(issues) == 0 {
+		Info("No open issues found for repo %s (user: %s)", repo, username)
+		updateModalWithErrorByID(slackClient, viewID, fmt.Sprintf("No open issues found for `%s`.", repo))
+		return
+	}
+
+	Info("Found %d open issues for repo %s (user: %s)", len(issues), repo, username)
+
+	// Short-circuit: when exactly one issue is available, post it directly without
+	// showing the chooser modal.
+	if len(issues) == 1 {
+		Info("Single issue found for repo %s, auto-posting issue #%d (user: %s)", repo, issues[0].Number, username)
+		if err := postIssueToSlack(ctx, rdb, &issues[0], repo, username, config); err != nil {
+			Error("Error auto-posting single issue to Slack: %v", err)
+			updateModalWithErrorByID(slackClient, viewID, "Failed to post the issue. Please try again.")
+			return
+		}
+		if _, err := slackClient.UpdateView(createIssueAutoPostedModal(&issues[0], repo), "", "", viewID); err != nil {
+			Error("Error updating modal after auto-posting issue: %v", err)
+		}
+		Debug("Single issue #%d auto-posted and modal updated for view_id: %s", issues[0].Number, viewID)
+		return
+	}
+
+	// Build private_metadata for the issue chooser modal, including the issue list.
+	meta := IssueModalPrivateMetadata{Repo: repo, Issues: issues}
+	metaJSON, err := json.Marshal(meta)
+	if err != nil {
+		Error("Error marshaling issue modal metadata: %v", err)
+		return
+	}
+
+	// Replace the loading modal with the issue chooser.
+	// Use empty hash to skip Slack's optimistic lock check, avoiding stale hash issues.
+	issueModal := createIssueChooserModal(issues, repo, string(metaJSON))
+	if _, err := slackClient.UpdateView(issueModal, "", "", viewID); err != nil {
+		Error("Error updating modal with issue list: %v", err)
+		return
+	}
+
+	Debug("Issue chooser modal updated successfully for view_id: %s", viewID)
 }
 
 // updateModalWithErrorByID replaces the current modal content with an error message.

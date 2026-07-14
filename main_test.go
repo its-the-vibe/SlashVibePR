@@ -509,7 +509,7 @@ func TestHandleBlockActionWithRepoOpensLoadingModal(t *testing.T) {
 			SelectedOption struct {
 				Value string `json:"value"`
 			} `json:"selected_option"`
-		}{{ActionID: slashVibeIssueActionID, BlockID: repoBlockID, SelectedOption: struct {
+		}{{ActionID: slashVibeIssueActionID, BlockID: prRepoBlockID, SelectedOption: struct {
 			Value string `json:"value"`
 		}{Value: "my-repo"}}},
 	})
@@ -848,5 +848,549 @@ func TestPRModalPrivateMetadataRoundtrip(t *testing.T) {
 
 	if out.Repo != "my-org/my-repo" {
 		t.Errorf("expected 'my-org/my-repo', got %q", out.Repo)
+	}
+}
+
+// ---- /import-issue slash command tests ----
+
+func TestHandleSlashCommandImportIssueIgnoresUnknownCommands(t *testing.T) {
+	// Commands other than /pr and /import-issue should be silently ignored.
+	commands := []string{"/issue", "/deploy", "/help", ""}
+	for _, cmd := range commands {
+		payload, _ := json.Marshal(SlackCommand{Command: cmd, TriggerID: "tid"})
+		assertNoPanic(t, fmt.Sprintf("command %q", cmd), func() {
+			handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
+		})
+	}
+}
+
+func TestHandleSlashCommandImportIssueWithRepoArgSkipsRepoChooser(t *testing.T) {
+	// When a repo argument is provided, /import-issue should attempt to open
+	// the issue loading modal. With a nil Slack client this panics.
+	payload, _ := json.Marshal(SlackCommand{Command: "/import-issue", Text: "myrepo", TriggerID: "tid"})
+	assertPanics(t, "/import-issue repo arg provided", func() {
+		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+	})
+}
+
+func TestHandleSlashCommandImportIssueWithoutRepoArgOpensRepoChooser(t *testing.T) {
+	// When no repo argument is provided, /import-issue should attempt to open
+	// the issue repo chooser modal. With a nil Slack client this panics.
+	payload, _ := json.Marshal(SlackCommand{Command: "/import-issue", Text: "", TriggerID: "tid"})
+	assertPanics(t, "/import-issue no repo arg", func() {
+		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+func TestHandleSlashCommandImportIssueInvalidRepoArgIsIgnored(t *testing.T) {
+	// An invalid repo arg should be rejected silently for /import-issue too.
+	invalidArgs := []string{"org/repo", "repo; rm -rf /", "repo name", "../etc"}
+	for _, arg := range invalidArgs {
+		payload, _ := json.Marshal(SlackCommand{Command: "/import-issue", Text: arg, TriggerID: "tid"})
+		assertNoPanic(t, fmt.Sprintf("/import-issue invalid repo arg %q", arg), func() {
+			handleSlashCommand(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+		})
+	}
+}
+
+func TestHandleSlashCommandImportIssueWhitespaceTextOpensRepoChooser(t *testing.T) {
+	// Whitespace-only text should be treated as no repo argument for /import-issue.
+	payload, _ := json.Marshal(SlackCommand{Command: "/import-issue", Text: "   ", TriggerID: "tid"})
+	assertPanics(t, "/import-issue whitespace-only text", func() {
+		handleSlashCommand(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+// ---- IssueItem JSON parsing tests ----
+
+func TestParseIssueListJSON(t *testing.T) {
+	raw := `[
+		{
+			"number": 1,
+			"title": "Bug report",
+			"author": {"login": "alice"},
+			"url": "https://github.com/org/repo/issues/1",
+			"state": "open",
+			"labels": [{"name": "bug"}, {"name": "priority-high"}],
+			"assignees": [{"login": "bob"}],
+			"createdAt": "2024-01-15T10:00:00Z"
+		},
+		{
+			"number": 2,
+			"title": "Feature request",
+			"author": {"login": "carol"},
+			"url": "https://github.com/org/repo/issues/2",
+			"state": "open",
+			"labels": [],
+			"assignees": [],
+			"createdAt": "2024-01-16T12:00:00Z"
+		}
+	]`
+
+	var issues []IssueItem
+	if err := json.Unmarshal([]byte(raw), &issues); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(issues) != 2 {
+		t.Fatalf("expected 2 issues, got %d", len(issues))
+	}
+	if issues[0].Number != 1 || issues[0].Title != "Bug report" || issues[0].Author.Login != "alice" {
+		t.Errorf("unexpected issue[0]: %+v", issues[0])
+	}
+	if issues[0].State != "open" {
+		t.Errorf("expected state 'open', got %q", issues[0].State)
+	}
+	if len(issues[0].Labels) != 2 || issues[0].Labels[0].Name != "bug" {
+		t.Errorf("unexpected labels for issue[0]: %+v", issues[0].Labels)
+	}
+	if len(issues[0].Assignees) != 1 || issues[0].Assignees[0].Login != "bob" {
+		t.Errorf("unexpected assignees for issue[0]: %+v", issues[0].Assignees)
+	}
+	if issues[0].CreatedAt != "2024-01-15T10:00:00Z" {
+		t.Errorf("unexpected createdAt for issue[0]: %q", issues[0].CreatedAt)
+	}
+	if issues[1].Number != 2 || issues[1].Author.Login != "carol" {
+		t.Errorf("unexpected issue[1]: %+v", issues[1])
+	}
+}
+
+func TestParseIssueListEmptyJSON(t *testing.T) {
+	var issues []IssueItem
+	if err := json.Unmarshal([]byte("[]"), &issues); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("expected 0 issues, got %d", len(issues))
+	}
+}
+
+// ---- IssueModalPrivateMetadata serialisation tests ----
+
+func TestIssueModalPrivateMetadataRoundtrip(t *testing.T) {
+	issue := IssueItem{Number: 5, Title: "My issue", State: "open"}
+	issue.Author.Login = "alice"
+	meta := IssueModalPrivateMetadata{Repo: "my-org/my-repo", Issues: []IssueItem{issue}}
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+
+	var out IssueModalPrivateMetadata
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if out.Repo != "my-org/my-repo" {
+		t.Errorf("expected 'my-org/my-repo', got %q", out.Repo)
+	}
+	if len(out.Issues) != 1 || out.Issues[0].Number != 5 {
+		t.Errorf("unexpected issues: %+v", out.Issues)
+	}
+}
+
+// ---- Issue modal creation tests ----
+
+func TestCreateIssueRepoChooserModalStructure(t *testing.T) {
+	modal := createIssueRepoChooserModal()
+
+	if modal.Type != slack.VTModal {
+		t.Errorf("expected modal type 'modal', got %q", modal.Type)
+	}
+	if modal.CallbackID != importIssueRepoModalCallbackID {
+		t.Errorf("expected callback_id %q, got %q", importIssueRepoModalCallbackID, modal.CallbackID)
+	}
+	if modal.Submit != nil {
+		t.Error("issue repo chooser modal must not have a submit button")
+	}
+	if len(modal.Blocks.BlockSet) != 2 {
+		t.Errorf("expected 2 blocks, got %d", len(modal.Blocks.BlockSet))
+	}
+}
+
+func TestCreateIssueRepoChooserModalUsesImportIssueActionID(t *testing.T) {
+	modal := createIssueRepoChooserModal()
+
+	actionBlock, ok := modal.Blocks.BlockSet[1].(*slack.ActionBlock)
+	if !ok {
+		t.Fatal("expected second block to be an ActionBlock")
+	}
+
+	if len(actionBlock.Elements.ElementSet) != 1 {
+		t.Fatalf("expected 1 element in action block, got %d", len(actionBlock.Elements.ElementSet))
+	}
+
+	selectEl, ok := actionBlock.Elements.ElementSet[0].(*slack.SelectBlockElement)
+	if !ok {
+		t.Fatal("expected element to be SelectBlockElement")
+	}
+	if selectEl.Type != slack.OptTypeExternal {
+		t.Errorf("expected external select type, got %q", selectEl.Type)
+	}
+	if selectEl.ActionID != slashVibeIssueActionID {
+		t.Errorf("expected action_id %q, got %q", slashVibeIssueActionID, selectEl.ActionID)
+	}
+}
+
+func TestCreateIssueLoadingModal(t *testing.T) {
+	modal := createIssueLoadingModal()
+
+	if modal.Type != slack.VTModal {
+		t.Errorf("expected modal type 'modal', got %q", modal.Type)
+	}
+	if modal.Submit != nil {
+		t.Error("issue loading modal should not have a submit button")
+	}
+	if len(modal.Blocks.BlockSet) != 1 {
+		t.Errorf("expected 1 block, got %d", len(modal.Blocks.BlockSet))
+	}
+	// Title should mention issues, not PRs.
+	if modal.Title == nil || !strings.Contains(modal.Title.Text, "Issue") {
+		t.Errorf("expected title to mention 'Issue', got %q", modal.Title.Text)
+	}
+}
+
+func TestCreateIssueChooserModalStructure(t *testing.T) {
+	issues := []IssueItem{
+		{Number: 1, Title: "Bug"},
+		{Number: 2, Title: "Feature"},
+	}
+	modal := createIssueChooserModal(issues, "org/repo", `{"repo":"org/repo"}`)
+
+	if modal.Type != slack.VTModal {
+		t.Errorf("expected modal type 'modal', got %q", modal.Type)
+	}
+	if modal.CallbackID != issueModalCallbackID {
+		t.Errorf("expected callback_id %q, got %q", issueModalCallbackID, modal.CallbackID)
+	}
+	if modal.Submit == nil || modal.Submit.Text != "Post to Channel" {
+		t.Errorf("expected submit button labelled 'Post to Channel'")
+	}
+	if modal.PrivateMetadata != `{"repo":"org/repo"}` {
+		t.Errorf("unexpected private_metadata: %q", modal.PrivateMetadata)
+	}
+	if len(modal.Blocks.BlockSet) != 2 {
+		t.Errorf("expected 2 blocks, got %d", len(modal.Blocks.BlockSet))
+	}
+}
+
+func TestCreateIssueChooserModalOptions(t *testing.T) {
+	issues := []IssueItem{
+		{Number: 42, Title: "My issue"},
+		{Number: 100, Title: "Another issue"},
+	}
+	modal := createIssueChooserModal(issues, "org/repo", "")
+
+	inputBlock, ok := modal.Blocks.BlockSet[1].(*slack.InputBlock)
+	if !ok {
+		t.Fatal("expected second block to be an InputBlock")
+	}
+
+	selectEl, ok := inputBlock.Element.(*slack.SelectBlockElement)
+	if !ok {
+		t.Fatal("expected element to be SelectBlockElement")
+	}
+	if len(selectEl.Options) != 2 {
+		t.Errorf("expected 2 options, got %d", len(selectEl.Options))
+	}
+	if selectEl.Options[0].Value != "42" {
+		t.Errorf("expected first option value '42', got %q", selectEl.Options[0].Value)
+	}
+	if selectEl.Options[1].Value != "100" {
+		t.Errorf("expected second option value '100', got %q", selectEl.Options[1].Value)
+	}
+}
+
+func TestCreateIssueChooserModalTitleTruncation(t *testing.T) {
+	longTitle := make([]byte, 100)
+	for i := range longTitle {
+		longTitle[i] = 'a'
+	}
+	issues := []IssueItem{{Number: 1, Title: string(longTitle)}}
+	modal := createIssueChooserModal(issues, "org/repo", "")
+
+	inputBlock := modal.Blocks.BlockSet[1].(*slack.InputBlock)
+	selectEl := inputBlock.Element.(*slack.SelectBlockElement)
+
+	if len(selectEl.Options[0].Text.Text) > 75 {
+		t.Errorf("option text should be truncated to at most 75 chars, got %d", len(selectEl.Options[0].Text.Text))
+	}
+}
+
+func TestCreateIssueAutoPostedModalStructure(t *testing.T) {
+	issue := &IssueItem{Number: 7, Title: "My issue"}
+	modal := createIssueAutoPostedModal(issue, "org/repo")
+
+	if modal.Type != slack.VTModal {
+		t.Errorf("expected modal type 'modal', got %q", modal.Type)
+	}
+	if modal.Submit != nil {
+		t.Error("issue auto-posted modal should not have a submit button")
+	}
+	if modal.Close == nil || modal.Close.Text != "Close" {
+		t.Errorf("expected close button labelled 'Close'")
+	}
+	if len(modal.Blocks.BlockSet) != 1 {
+		t.Errorf("expected 1 block, got %d", len(modal.Blocks.BlockSet))
+	}
+}
+
+func TestCreateIssueAutoPostedModalContent(t *testing.T) {
+	issue := &IssueItem{Number: 7, Title: "My issue"}
+	modal := createIssueAutoPostedModal(issue, "org/repo")
+
+	section, ok := modal.Blocks.BlockSet[0].(*slack.SectionBlock)
+	if !ok {
+		t.Fatal("expected first block to be a SectionBlock")
+	}
+	if section.Text == nil {
+		t.Fatal("expected section text to be non-nil")
+	}
+	text := section.Text.Text
+	if !strings.Contains(text, "7") {
+		t.Errorf("expected issue number 7 in modal text, got %q", text)
+	}
+	if !strings.Contains(text, "org/repo") {
+		t.Errorf("expected repo name in modal text, got %q", text)
+	}
+}
+
+// ---- handleBlockAction tests for /import-issue ----
+
+func TestHandleBlockActionImportIssueActionIDOpensIssueLoadingModal(t *testing.T) {
+	// A valid block action with slashVibeImportIssueActionID should attempt to open
+	// the issue loading modal. With a nil Slack client this panics.
+	payload, _ := json.Marshal(BlockActionPayload{
+		Type:      "block_actions",
+		TriggerID: "tid",
+		User: struct {
+			ID       string `json:"id"`
+			Username string `json:"username"`
+		}{Username: "alice"},
+		Actions: []struct {
+			ActionID       string `json:"action_id"`
+			BlockID        string `json:"block_id"`
+			Type           string `json:"type"`
+			SelectedOption struct {
+				Value string `json:"value"`
+			} `json:"selected_option"`
+		}{{ActionID: slashVibeIssueActionID, BlockID: prRepoBlockID, SelectedOption: struct {
+			Value string `json:"value"`
+		}{Value: "my-repo"}}},
+	})
+
+	assertPanics(t, "import-issue block action", func() {
+		handleBlockAction(context.Background(), nil, nil, string(payload), Config{GitHubOrg: "my-org"})
+	})
+}
+
+// ---- handleViewSubmission tests for issue modal ----
+
+func TestHandleViewSubmissionIssueCallbackIDIsRouted(t *testing.T) {
+	// A view submission with issueModalCallbackID should be routed to handleIssueSelection.
+	// With empty private_metadata, handleIssueSelection will log a warning and return without panicking.
+	submission := ViewSubmission{
+		Type: "view_submission",
+		View: struct {
+			ID              string `json:"id"`
+			Hash            string `json:"hash"`
+			CallbackID      string `json:"callback_id"`
+			PrivateMetadata string `json:"private_metadata"`
+			State           struct {
+				Values map[string]map[string]interface{} `json:"values"`
+			} `json:"state"`
+		}{
+			CallbackID:      issueModalCallbackID,
+			PrivateMetadata: "",
+			State: struct {
+				Values map[string]map[string]interface{} `json:"values"`
+			}{
+				Values: map[string]map[string]interface{}{},
+			},
+		},
+	}
+	payload, _ := json.Marshal(submission)
+	assertNoPanic(t, "issue callback_id with empty state", func() {
+		handleViewSubmission(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+// ---- handlePoppitOutput tests for issue list ----
+
+func TestHandlePoppitOutputIssueWrongType(t *testing.T) {
+	// A Poppit output with a different type should be silently ignored.
+	output := PoppitOutput{
+		Type:   "some-other-type",
+		Output: "[]",
+	}
+	payload, _ := json.Marshal(output)
+	assertNoPanic(t, "wrong poppit type for issue", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+func TestHandlePoppitOutputIssueNoMetadata(t *testing.T) {
+	// A slash-vibe-issue-list output with no metadata should warn and return without panic.
+	output := PoppitOutput{
+		Type:   poppitIssueListType,
+		Output: "[]",
+	}
+	payload, _ := json.Marshal(output)
+	assertNoPanic(t, "issue output no metadata", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+func TestHandlePoppitOutputSingleIssueShortCircuitsModal(t *testing.T) {
+	// When exactly one issue is returned, handlePoppitOutput should attempt to push
+	// to the SlackLiner Redis list (postIssueToSlack). With a nil Redis client this
+	// panics, confirming the auto-post path is reached.
+	issue := IssueItem{Number: 3, Title: "Only Issue", State: "open"}
+	issue.Author.Login = "alice"
+	issue.URL = "https://github.com/org/repo/issues/3"
+	issueJSON, _ := json.Marshal([]IssueItem{issue})
+
+	output := PoppitOutput{
+		Type:   poppitIssueListType,
+		Output: string(issueJSON),
+		Metadata: map[string]interface{}{
+			"view_id":  "V789",
+			"repo":     "org/repo",
+			"username": "alice",
+		},
+	}
+	payload, _ := json.Marshal(output)
+
+	assertPanics(t, "single issue auto-post path", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+func TestHandlePoppitOutputMultipleIssuesShowsChooser(t *testing.T) {
+	// When more than one issue is returned, handlePoppitOutput should attempt to
+	// update the Slack modal (chooser path). With a nil Slack client this panics.
+	issues := []IssueItem{
+		{Number: 1, Title: "First issue"},
+		{Number: 2, Title: "Second issue"},
+	}
+	issueJSON, _ := json.Marshal(issues)
+
+	output := PoppitOutput{
+		Type:   poppitIssueListType,
+		Output: string(issueJSON),
+		Metadata: map[string]interface{}{
+			"view_id":  "V999",
+			"repo":     "org/repo",
+			"username": "bob",
+		},
+	}
+	payload, _ := json.Marshal(output)
+
+	assertPanics(t, "multiple issues chooser path", func() {
+		handlePoppitOutput(context.Background(), nil, nil, string(payload), Config{})
+	})
+}
+
+// ---- Config IssueChannelID tests ----
+
+func TestLoadConfigFromBytesIssueChannelID(t *testing.T) {
+	yamlData := []byte(`
+slack:
+  channel_id: CPR
+  issue_channel_id: CISSUE
+`)
+	config, err := loadConfigFromBytes(yamlData, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if config.SlackChannelID != "CPR" {
+		t.Errorf("unexpected SlackChannelID: %q", config.SlackChannelID)
+	}
+	if config.IssueChannelID != "CISSUE" {
+		t.Errorf("unexpected IssueChannelID: %q", config.IssueChannelID)
+	}
+}
+
+func TestLoadConfigFromBytesIssueChannelIDDefaultsToEmpty(t *testing.T) {
+	yamlData := []byte(`
+slack:
+  channel_id: CPR
+`)
+	config, err := loadConfigFromBytes(yamlData, "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if config.IssueChannelID != "" {
+		t.Errorf("expected empty IssueChannelID, got %q", config.IssueChannelID)
+	}
+}
+
+// ---- postIssueToSlack metadata tests ----
+
+func TestPostIssueToSlackUsesIssueChannelID(t *testing.T) {
+	// When IssueChannelID is set, postIssueToSlack should use it instead of SlackChannelID.
+	issue := &IssueItem{
+		Number: 5,
+		Title:  "Test Issue",
+		State:  "open",
+		URL:    "https://github.com/org/repo/issues/5",
+	}
+	issue.Author.Login = "alice"
+	issue.Labels = []struct {
+		Name string `json:"name"`
+	}{{Name: "bug"}}
+	issue.Assignees = []struct {
+		Login string `json:"login"`
+	}{{Login: "bob"}}
+	issue.CreatedAt = "2024-01-01T00:00:00Z"
+
+	// Build a SlackLinerMessage the same way postIssueToSlack does.
+	channelID := "CISSUE"
+	msg := SlackLinerMessage{
+		Channel: channelID,
+		Text:    "test",
+		TTL:     86400,
+		Metadata: map[string]interface{}{
+			"event_type": "issue_posted",
+			"event_payload": map[string]interface{}{
+				"issue_number": issue.Number,
+				"repository":   "org/repo",
+				"issue_url":    issue.URL,
+				"author":       issue.Author.Login,
+				"title":        issue.Title,
+				"state":        issue.State,
+				"posted_by":    "carol",
+			},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+
+	var out map[string]interface{}
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if out["channel"] != "CISSUE" {
+		t.Errorf("expected channel 'CISSUE', got %v", out["channel"])
+	}
+
+	metadata, ok := out["metadata"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected metadata to be a map")
+	}
+	eventPayload, ok := metadata["event_payload"].(map[string]interface{})
+	if !ok {
+		t.Fatal("expected event_payload to be a map")
+	}
+	if eventPayload["state"] != "open" {
+		t.Errorf("expected state 'open', got %v", eventPayload["state"])
+	}
+	if eventPayload["issue_number"].(float64) != 5 {
+		t.Errorf("expected issue_number 5, got %v", eventPayload["issue_number"])
 	}
 }

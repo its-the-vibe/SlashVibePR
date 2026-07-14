@@ -73,6 +73,30 @@ type PRModalPrivateMetadata struct {
 	PRs  []PRItem `json:"prs"`
 }
 
+// IssueItem represents a single issue returned by `gh issue list --json`.
+type IssueItem struct {
+	Number int    `json:"number"`
+	Title  string `json:"title"`
+	Author struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	URL    string `json:"url"`
+	State  string `json:"state"`
+	Labels []struct {
+		Name string `json:"name"`
+	} `json:"labels"`
+	Assignees []struct {
+		Login string `json:"login"`
+	} `json:"assignees"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// IssueModalPrivateMetadata is stored in the issue-chooser modal's private_metadata field.
+type IssueModalPrivateMetadata struct {
+	Repo   string      `json:"repo"`
+	Issues []IssueItem `json:"issues"`
+}
+
 // BlockActionPayload represents a Slack block_actions interaction payload.
 // It is published to the Redis block-actions channel by the Slack relay.
 type BlockActionPayload struct {
