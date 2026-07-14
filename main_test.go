@@ -509,7 +509,7 @@ func TestHandleBlockActionWithRepoOpensLoadingModal(t *testing.T) {
 			SelectedOption struct {
 				Value string `json:"value"`
 			} `json:"selected_option"`
-		}{{ActionID: slashVibeIssueActionID, BlockID: repoBlockID, SelectedOption: struct {
+		}{{ActionID: slashVibeIssueActionID, BlockID: prRepoBlockID, SelectedOption: struct {
 			Value string `json:"value"`
 		}{Value: "my-repo"}}},
 	})
@@ -1028,8 +1028,8 @@ func TestCreateIssueRepoChooserModalUsesImportIssueActionID(t *testing.T) {
 	if selectEl.Type != slack.OptTypeExternal {
 		t.Errorf("expected external select type, got %q", selectEl.Type)
 	}
-	if selectEl.ActionID != slashVibeImportIssueActionID {
-		t.Errorf("expected action_id %q, got %q", slashVibeImportIssueActionID, selectEl.ActionID)
+	if selectEl.ActionID != slashVibeIssueActionID {
+		t.Errorf("expected action_id %q, got %q", slashVibeIssueActionID, selectEl.ActionID)
 	}
 }
 
@@ -1175,7 +1175,7 @@ func TestHandleBlockActionImportIssueActionIDOpensIssueLoadingModal(t *testing.T
 			SelectedOption struct {
 				Value string `json:"value"`
 			} `json:"selected_option"`
-		}{{ActionID: slashVibeImportIssueActionID, BlockID: repoBlockID, SelectedOption: struct {
+		}{{ActionID: slashVibeIssueActionID, BlockID: prRepoBlockID, SelectedOption: struct {
 			Value string `json:"value"`
 		}{Value: "my-repo"}}},
 	})

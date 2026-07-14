@@ -19,7 +19,8 @@ const (
 	poppitIssueListType = "slash-vibe-issue-list"
 	defaultPRLimit      = 50
 	defaultIssueLimit   = 50
-	repoBlockID         = "repo_block"
+	prRepoBlockID       = "pr_repo_block"
+	issueRepoBlockID    = "issue_repo_block"
 )
 
 // subscribeToSlashCommands subscribes to the Redis slash-commands channel and
@@ -218,16 +219,15 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 	first := action.Actions[0]
 
 	// Only handle repo selection actions from the repo chooser modals.
-	switch first.ActionID {
-	case slashVibeIssueActionID, slashVibeImportIssueActionID:
-		// handled below
-	default:
+	if first.ActionID != slashVibeIssueActionID {
 		return
 	}
 
-	if first.BlockID != repoBlockID {
+	if first.BlockID != prRepoBlockID && first.BlockID != issueRepoBlockID {
 		return
 	}
+
+	issueAction := first.BlockID == issueRepoBlockID
 
 	repoName := first.SelectedOption.Value
 	if repoName == "" {
@@ -239,7 +239,7 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 	Info("User %s selected repo via block action: %s", action.User.Username, repo)
 
 	var loadingModal slack.ModalViewRequest
-	if first.ActionID == slashVibeImportIssueActionID {
+	if issueAction {
 		loadingModal = createIssueLoadingModal()
 	} else {
 		loadingModal = createLoadingModal()
@@ -253,7 +253,7 @@ func handleBlockAction(ctx context.Context, rdb *redis.Client, slackClient *slac
 
 	Debug("Loading modal opened from block action with view_id: %s", viewResp.ID)
 
-	if first.ActionID == slashVibeImportIssueActionID {
+	if issueAction {
 		if err := sendIssueListCommand(ctx, rdb, repo, viewResp.ID, action.User.Username, config); err != nil {
 			Error("Error sending Poppit issue command for repo %s: %v", repo, err)
 		}
