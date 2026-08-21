@@ -1,8 +1,8 @@
 # Build stage
-FROM golang:1.26.6-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.6-alpine AS builder
 
-# Install ca-certificates for HTTPS
-RUN apk add --no-cache ca-certificates && update-ca-certificates
+ARG TARGETOS
+ARG TARGETARCH
 
 WORKDIR /build
 
@@ -13,16 +13,15 @@ RUN go mod download
 # Copy source code
 COPY . .
 
-# Build the application (static binary for scratch image)
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o slashvibeprs .
+# Build the application (static binary)
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o slashvibepr .
 
-# Final stage - minimal scratch image
-FROM scratch
+# Final stage (distroless)
+FROM gcr.io/distroless/static-debian13:nonroot
 
 # Copy the binary from builder
-COPY --from=builder /build/slashvibeprs /slashvibeprs
+COPY --from=builder /build/slashvibepr /slashvibepr
 
-# Copy CA certificates for HTTPS (required for Slack API calls)
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+USER nonroot:nonroot
 
-ENTRYPOINT ["/slashvibeprs"]
+ENTRYPOINT ["/slashvibepr"]
