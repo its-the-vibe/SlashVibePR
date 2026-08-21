@@ -3,7 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: slashvibeprs:latest
+    image: ghcr.io/its-the-vibe/slashvibeprs:latest
+    pull_policy: always
     container_name: slashvibeprs
     read_only: true
     env_file:
