@@ -14,14 +14,14 @@ RUN go mod download
 COPY . .
 
 # Build the application (static binary)
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o slashvibeprs .
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o slashvibepr .
 
 # Final stage (distroless)
 FROM gcr.io/distroless/static-debian13:nonroot
 
 # Copy the binary from builder
-COPY --from=builder /build/slashvibeprs /slashvibeprs
+COPY --from=builder /build/slashvibepr /slashvibepr
 
 USER nonroot:nonroot
 
-ENTRYPOINT ["/slashvibeprs"]
+ENTRYPOINT ["/slashvibepr"]

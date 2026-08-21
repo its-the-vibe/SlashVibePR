@@ -1,18 +1,18 @@
 services:
-  slashvibeprs:
+  slashvibepr:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/its-the-vibe/slashvibeprs:latest
+    image: ghcr.io/its-the-vibe/slashvibepr:latest
     pull_policy: always
-    container_name: slashvibeprs
+    container_name: slashvibepr
     read_only: true
     env_file:
       - .env
     environment:
-      - CONFIG_FILE=/etc/slashvibeprs/config.yaml
+      - CONFIG_FILE=/etc/slashvibepr/config.yaml
     volumes:
-      - ./config.yaml:/etc/slashvibeprs/config.yaml:ro
+      - ./config.yaml:/etc/slashvibepr/config.yaml:ro
     restart: on-failure:10
     extra_hosts:
       - "host.docker.internal:host-gateway"
